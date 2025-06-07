@@ -588,37 +588,37 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 response = "Syed Farooq the AI engineering student from India created me in June 2025."
             else:
                 try:
-                # Format messages for Mistral API
-                messages = []
-                # Add personality context (system messages)
-                for msg in personality_context:
-                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                        messages.append({
-                            "role": msg['role'],
-                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                        })
-                # Add chat history if available
-                for msg in chat_history:
-                    if msg.get('role') and msg.get('content'):
-                        messages.append({
-                            "role": msg['role'],
-                            "content": msg['content']
-                        })
-                # Add the current user message
-                messages.append({
-                    "role": "user",
-                    "content": message
-                })
-                # Log the full prompt/messages sent to the LLM for debugging
-                logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
-                response = await get_mistral_response(messages)
-            except Exception as e:
-                logger.error(f"Error generating response with Mistral: {str(e)}")
-                logger.error(traceback.format_exc())
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to generate response"
-                )
+                    # Format messages for Mistral API
+                    messages = []
+                    # Add personality context (system messages)
+                    for msg in personality_context:
+                        if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                            messages.append({
+                                "role": msg['role'],
+                                "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                            })
+                    # Add chat history if available
+                    for msg in chat_history:
+                        if msg.get('role') and msg.get('content'):
+                            messages.append({
+                                "role": msg['role'],
+                                "content": msg['content']
+                            })
+                    # Add the current user message
+                    messages.append({
+                        "role": "user",
+                        "content": message
+                    })
+                    # Log the full prompt/messages sent to the LLM for debugging
+                    logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
+                    response = await get_mistral_response(messages)
+                except Exception as e:
+                    logger.error(f"Error generating response with Mistral: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to generate response"
+                    )
         
         # Store the conversation in Firestore
         try:
@@ -790,6 +790,10 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete conversation"
         )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
     import uvicorn
