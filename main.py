@@ -15,7 +15,7 @@ from firebase_memory_manager import (
     delete_chat
 )
 from meme_uploader import upload_meme, get_memes
-from stt_handler import stt, stt_from_mic
+# from stt_handler import stt, stt_from_mic
 from tts_handler import speak
 from config import UPLOAD_DIR, FIREBASE_PROJECT_ID
 from dotenv import load_dotenv
@@ -324,59 +324,6 @@ async def delete_meme_endpoint(
             detail="Failed to delete meme"
         )
 
-@app.post("/stt")
-async def stt_endpoint(
-    audio: UploadFile = File(...),
-    language: str = "en-US"
-):
-    """Convert speech to text"""
-    print("\n=== STT Endpoint Called ===")
-    print(f"Received file: {audio.filename}")
-    print(f"Content type: {audio.content_type}")
-    
-    if not audio:
-        raise HTTPException(status_code=400, detail="No file uploaded")
-    
-    # Save the uploaded file
-    file_path = os.path.join(UPLOAD_DIR, audio.filename)
-    try:
-        # Read file content
-        content = await audio.read()
-        print(f"File size: {len(content)} bytes")
-        print(f"First 16 bytes: {content[:16]}")
-        
-        # Save file
-        with open(file_path, "wb") as f:
-            f.write(content)
-        print(f"File saved to: {file_path}")
-        
-        # Convert speech to text
-        print("Starting transcription...")
-        text = stt(file_path, language)
-        print(f"Transcription successful: {text}")
-        
-        return {
-            "success": True,
-            "text": f"[SPEECH] {text}"
-        }
-    except Exception as e:
-        print(f"Error in transcription: {str(e)}")
-        print("Full error details:")
-        traceback.print_exc()
-        
-        # Clean up the file if it exists
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-                print(f"Cleaned up file: {file_path}")
-            except Exception as cleanup_error:
-                print(f"Error cleaning up file: {str(cleanup_error)}")
-        
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
-
 @app.get("/auth/test")
 async def test_auth_endpoint(current_user: dict = Depends(get_current_user)):
     """
@@ -393,19 +340,6 @@ async def test_auth_endpoint(current_user: dict = Depends(get_current_user)):
             "provider": current_user.get("provider_id"),
         }
     }
-
-@app.post("/stt/mic")
-async def stt_mic_endpoint(
-    language: str = "en-US",
-    current_user: dict = Depends(get_current_user)
-):
-    try:
-        # Convert speech to text from microphone
-        text = stt_from_mic(language)
-        # Add [SPEECH] prefix to indicate this is from speech input
-        return {"text": f"[SPEECH]{text}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/get-test-token")
 async def get_test_token():
@@ -559,81 +493,6 @@ async def get_personalities():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/transcribe")
-async def transcribe_audio(audio: UploadFile = File(...)):
-    try:
-        # Save the uploaded file
-        file_location = f"temp_{audio.filename}"
-        print(f"Received file: {audio.filename}, content type: {audio.content_type}")
-        
-        with open(file_location, "wb") as file:
-            content = await audio.read()
-            print(f"File size: {len(content)} bytes")
-            print(f"First 16 bytes: {content[:16]}")
-            file.write(content)
-        
-        print(f"File saved at: {file_location}")
-        
-        # Always convert to WAV with specific parameters
-        print("Converting to WAV format...")
-        wav_file = convert_to_wav(file_location)
-        if not wav_file:
-            raise Exception("Failed to convert audio to WAV format")
-        
-        # Remove original file
-        if os.path.exists(file_location):
-            os.remove(file_location)
-        
-        file_location = wav_file
-        print(f"Converted to WAV: {file_location}")
-        
-        # Transcribe the audio
-        print("Starting transcription...")
-        text = stt(file_location)
-        print(f"Transcription result: {text}")
-        
-        # Clean up
-        if os.path.exists(file_location):
-            os.remove(file_location)
-        
-        return {"text": text}
-    except Exception as e:
-        print(f"Error in transcribe_audio: {str(e)}")
-        traceback.print_exc()
-        # Clean up file if it exists
-        if 'file_location' in locals() and os.path.exists(file_location):
-            os.remove(file_location)
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)  # Return the actual error message instead of "Something went wrong"
-        )
-
-def convert_to_wav(input_file):
-    try:
-        output_file = input_file.rsplit('.', 1)[0] + '.wav'
-        print(f"Converting {input_file} to {output_file}")
-        
-        # Use ffmpeg to convert to WAV with specific parameters
-        result = subprocess.run([
-            'ffmpeg', '-y',  # -y to overwrite output file if it exists
-            '-i', input_file,
-            '-acodec', 'pcm_s16le',  # Use 16-bit PCM encoding
-            '-ar', '16000',  # Set sample rate to 16kHz
-            '-ac', '1',  # Convert to mono
-            '-f', 'wav',  # Force WAV format
-            output_file
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"FFmpeg error: {result.stderr}")
-            raise Exception(f"FFmpeg conversion failed: {result.stderr}")
-        
-        print(f"Conversion successful: {output_file}")
-        return output_file
-    except Exception as e:
-        print(f"Error converting to WAV: {str(e)}")
-        return None
 
 @app.post("/mistral-heading")
 async def generate_heading(request: HeadingRequest):

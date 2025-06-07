@@ -1,8 +1,8 @@
 import os
-import speech_recognition as sr
+# import speech_recognition as sr
 import traceback
 
-def stt(audio_file: str, language: str = "en-US") -> str:
+# def stt(audio_file: str, language: str = "en-US") -> str:
     """
     Convert speech to text using Google's Speech Recognition.
     
@@ -65,7 +65,7 @@ def stt(audio_file: str, language: str = "en-US") -> str:
         except Exception as e:
             print(f"Error cleaning up file: {str(e)}")
 
-def stt_from_mic(language: str = "en-US") -> str:
+# def stt_from_mic(language: str = "en-US") -> str:
     """
     Convert speech to text from microphone input using Google's Speech Recognition.
     
