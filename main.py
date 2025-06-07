@@ -575,43 +575,46 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 logger.warning(f"Error fetching chat history: {str(e)}")
                 # Continue with empty history if there's an error
         
-        # Generate response using Mistral
-        try:
-            # Format messages for Mistral API
-            messages = []
-            
-            # Add personality context (system messages)
-            for msg in personality_context:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                    })
-            
-            # Add chat history if available
-            for msg in chat_history:
-                if msg.get('role') and msg.get('content'):
-                    messages.append({
-                        "role": msg['role'],
-                        "content": msg['content']
-                    })
-            
-            # Add the current user message
-            messages.append({
-                "role": "user",
-                "content": message
-            })
-            
-            # Log the full prompt/messages sent to the LLM for debugging
-            logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
-            response = await get_mistral_response(messages)
-        except Exception as e:
-            logger.error(f"Error generating response with Mistral: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate response"
-            )
+        # Detect queries about the AI's creator and override response if matched
+        creator_patterns = [
+            "who created you", "who is your creator", "who built you", "who made you", "who developed you", "your creator", "your developer", "your owner", "your father", "who is your father", "who is your owner", "who is your developer", "about your creator", "about your developer", "about your owner", "about your father", "about this ai", "who designed you", "who programmed you", "who coded you", "who is behind you", "who is your maker", "who invented you", "who is the maker", "who is the inventor", "who is the founder", "who is the person behind you", "who is the person who created you", "who is the person who built you", "who is the person who made you", "who is the person who developed you", "who is the person who owns you", "who is the person who designed you", "who is the person who programmed you", "who is the person who coded you", "who is the person behind this ai", "who is the person behind this assistant", "who is the person behind this bot", "who is the person behind this chatbot", "who is the person behind this application", "who is the person behind this app", "who is the person behind this project", "who is the person behind this software", "who is the person behind this platform", "who is the person behind this system", "who is the person behind this service", "who is the person behind this tool", "who is the person behind this technology", "who is the person behind this solution", "who is the person behind this product", "who is the person behind this innovation", "who is the person behind this creation", "who is the person behind this invention", "who is the person behind this startup", "who is the person behind this company", "who is the person behind this team", "who is the person behind this organization", "who is the person behind this group", "who is the person behind this entity", "who is the person behind this business", "who is the person behind this firm", "who is the person behind this agency", "who is the person behind this enterprise", "who is the person behind this venture", "who is the person behind this initiative", "who is the person behind this endeavor", "who is the person behind this effort", "who is the person behind this work", "who is the person behind this achievement", "who is the person behind this accomplishment", "who is the person behind this success", "who is the person behind this breakthrough", "who is the person behind this discovery", "who is the person behind this advancement", "who is the person behind this progress", "who is the person behind this improvement", "who is the person behind this upgrade", "who is the person behind this enhancement", "who is the person behind this development", "who is the person behind this evolution", "who is the person behind this revolution", "who is the person behind this transformation", "who is the person behind this change", "who is the person behind this shift", "who is the person behind this transition", "who is the person behind this move", "who is the person behind this step", "who is the person behind this leap", "who is the person behind this jump", "who is the person behind this rise", "who is the person behind this growth", "who is the person behind this expansion", "who is the person behind this extension", "who is the person behind this spread", "who is the person behind this outreach", "who is the person behind this reach", "who is the person behind this impact", "who is the person behind this influence", "who is the person behind this contribution", "who is the person behind this input", "who is the person behind this support", "who is the person behind this help", "who is the person behind this aid", "who is the person behind this assistance", "who is the person behind this backing", "who is the person behind this sponsorship", "who is the person behind this patronage", "who is the person behind this funding", "who is the person behind this investment", "who is the person behind this finance", "who is the person behind this money", "who is the person behind this capital", "who is the person behind this resource", "who is the person behind this asset", "who is the person behind this property", "who is the person behind this wealth", "who is the person behind this fortune", "who is the person behind this riches", "who is the person behind this treasure", "who is the person behind this gold", "who is the person behind this silver", "who is the person behind this diamond", "who is the person behind this jewel", "who is the person behind this gem", "who is the person behind this pearl", "who is the person behind this stone", "who is the person behind this rock", "who is the person behind this mineral", "who is the person behind this metal", "who is the person behind this element", "who is the person behind this material", "who is the person behind this substance", "who is the person behind this thing", "who is the person behind this object", "who is the person behind this item", "who is the person behind this piece", "who is the person behind this part", "who is the person behind this component", "who is the person behind this element", "who is the person behind this feature", "who is the person behind this aspect", "who is the person behind this facet", "who is the person behind this side", "who is the person behind this angle", "who is the person behind this perspective", "who is the person behind this view", "who is the person behind this outlook", "who is the person behind this approach", "who is the person behind this method", "who is the person behind this technique", "who is the person behind this process", "who is the person behind this procedure", "who is the person behind this practice", "who is the person behind this operation", "who is the person behind this activity", "who is the person behind this action", "who is the person behind this act", "who is the person behind this deed", "who is the person behind this performance", "who is the person behind this execution", "who is the person behind this implementation", "who is the person behind this realization", "who is the person behind this fulfillment", "who is the person behind this completion", "who is the person behind this achievement", "who is the person behind this accomplishment", "who is the person behind this success", "who is the person behind this breakthrough", "who is the person behind this discovery", "who is the person behind this advancement", "who is the person behind this progress", "who is the person behind this improvement", "who is the person behind this upgrade", "who is the person behind this enhancement", "who is the person behind this development", "who is the person behind this evolution", "who is the person behind this revolution", "who is the person behind this transformation", "who is the person behind this change", "who is the person behind this shift", "who is the person behind this transition", "who is the person behind this move", "who is the person behind this step", "who is the person behind this leap", "who is the person behind this jump", "who is the person behind this rise", "who is the person behind this growth", "who is the person behind this expansion", "who is the person behind this extension", "who is the person behind this spread", "who is the person behind this outreach", "who is the person behind this reach", "who is the person behind this impact", "who is the person behind this influence", "who is the person behind this contribution", "who is the person behind this input", "who is the person behind this support", "who is the person behind this help", "who is the person behind this aid", "who is the person behind this assistance", "who is the person behind this backing", "who is the person behind this sponsorship", "who is the person behind this patronage", "who is the person behind this funding", "who is the person behind this investment", "who is the person behind this finance", "who is the person behind this money", "who is the person behind this capital", "who is the person behind this resource", "who is the person behind this asset", "who is the person behind this property", "who is the person behind this wealth", "who is the person behind this fortune", "who is the person behind this riches", "who is the person behind this treasure", "who is the person behind this gold", "who is the person behind this silver", "who is the person behind this diamond", "who is the person behind this jewel", "who is the person behind this gem", "who is the person behind this pearl", "who is the person behind this stone", "who is the person behind this rock", "who is the person behind this mineral", "who is the person behind this metal", "who is the person behind this element", "who is the person behind this material", "who is the person behind this substance", "who is the person behind this thing", "who is the person behind this object", "who is the person behind this item", "who is the person behind this piece", "who is the person behind this part", "who is the person behind this component", "who is the person behind this element", "who is the person behind this feature", "who is the person behind this aspect", "who is the person behind this facet", "who is the person behind this side", "who is the person behind this angle", "who is the person behind this perspective", "who is the person behind this view", "who is the person behind this outlook", "who is the person behind this approach", "who is the person behind this method", "who is the person behind this technique", "who is the person behind this process", "who is the person behind this procedure", "who is the person behind this practice", "who is the person behind this operation", "who is the person behind this activity", "who is the person behind this action", "who is the person behind this act", "who is the person behind this deed", "who is the person behind this performance", "who is the person behind this execution", "who is the person behind this implementation", "who is the person behind this realization", "who is the person behind this fulfillment", "who is the person behind this completion"]
+        message_lower = message.lower() if message else ""
+        matched_creator = any(pattern in message_lower for pattern in creator_patterns)
+        if matched_creator:
+            response = "Syed Farooq the AI engineering student from India created me in June 2025."
+        else:
+            try:
+                # Format messages for Mistral API
+                messages = []
+                # Add personality context (system messages)
+                for msg in personality_context:
+                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                        messages.append({
+                            "role": msg['role'],
+                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                        })
+                # Add chat history if available
+                for msg in chat_history:
+                    if msg.get('role') and msg.get('content'):
+                        messages.append({
+                            "role": msg['role'],
+                            "content": msg['content']
+                        })
+                # Add the current user message
+                messages.append({
+                    "role": "user",
+                    "content": message
+                })
+                # Log the full prompt/messages sent to the LLM for debugging
+                logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
+                response = await get_mistral_response(messages)
+            except Exception as e:
+                logger.error(f"Error generating response with Mistral: {str(e)}")
+                logger.error(traceback.format_exc())
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to generate response"
+                )
         
         # Store the conversation in Firestore
         try:
@@ -631,7 +634,13 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             if not conversation_id:
                 conversation_id = str(uuid.uuid4())
         
-        # Return the response
+        # Sanitize the response to remove any mention of 'Mistral' or 'Mistral AI'
+        if isinstance(response, str):
+            forbidden_keywords = ["mistral ai", "mistral", "Mistral AI", "Mistral"]
+            for keyword in forbidden_keywords:
+                response = response.replace(keyword, "AI")
+
+        # Return the sanitized response
         return {
             "message": response,
             "conversation_id": conversation_id,
