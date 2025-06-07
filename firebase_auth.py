@@ -15,13 +15,24 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Initialize Firebase Admin SDK using service account JSON file (recommended)
-SERVICE_ACCOUNT_PATH = r"C:/Users/syedf/Downloads/giga-bhai18-firebase-adminsdk-fbsvc-bd1f29961d.json"
+import json
+
+# Initialize Firebase Admin SDK from environment variable
+SERVICE_ACCOUNT_JSON_STRING = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
+
+if not SERVICE_ACCOUNT_JSON_STRING:
+    logger.error("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
+    raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
+
 try:
-    cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
-    logger.info(f"Firebase credentials loaded from service account file: {SERVICE_ACCOUNT_PATH}")
+    service_account_info = json.loads(SERVICE_ACCOUNT_JSON_STRING)
+    cred = credentials.Certificate(service_account_info)
+    logger.info("Firebase credentials loaded successfully from FIREBASE_SERVICE_ACCOUNT_JSON environment variable.")
+except json.JSONDecodeError as e:
+    logger.error(f"Error decoding FIREBASE_SERVICE_ACCOUNT_JSON: {str(e)}")
+    raise
 except Exception as e:
-    logger.error(f"Error loading Firebase credentials from file: {SERVICE_ACCOUNT_PATH} - {str(e)}")
+    logger.error(f"Error initializing Firebase credentials from environment variable: {str(e)}")
     raise
 
 from config import FIREBASE_STORAGE_BUCKET
