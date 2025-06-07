@@ -14,9 +14,9 @@ from firebase_memory_manager import (
     update_chat_title,
     delete_chat
 )
-from meme_uploader import upload_meme, get_memes
+# from meme_uploader import upload_meme, get_memes
 # from stt_handler import stt, stt_from_mic
-from tts_handler import speak
+# from tts_handler import speak
 from config import UPLOAD_DIR, FIREBASE_PROJECT_ID
 from dotenv import load_dotenv
 import os
@@ -190,139 +190,139 @@ def get_cached_response(message: str, personality: str) -> Optional[str]:
 
 # API endpoints
 
-@app.post("/upload-meme")
-async def upload_meme_endpoint(
-    file: UploadFile = File(...),
-    caption: str = Body(...),
-    category: Optional[str] = Body(None),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Upload a meme file to Firebase Storage and store its metadata in Firestore.
-    
-    The file is stored in a user-specific directory in the Firebase Storage bucket,
-    and metadata is stored in the 'memes' collection in Firestore.
-    """
-    try:
-        # Read file content
-        contents = await file.read()
-        
-        # Validate file size (e.g., 5MB max)
-        if len(contents) > 5 * 1024 * 1024:  # 5MB
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File size exceeds maximum allowed size of 5MB"
-            )
-        
-        # Upload to Firebase Storage
-        result = await upload_meme(
-            file_data=contents,
-            file_name=file.filename,
-            content_type=file.content_type or "application/octet-stream",
-            user_id=current_user.get("uid"),
-            profile_id=current_user.get("profile_id"),
-            caption=caption,
-            category=category or "general"
-        )
-        
-        return {
-            "success": True,
-            "message": "File uploaded successfully",
-            "data": result
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading meme: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload file: {str(e)}"
-        )
+# @app.post("/upload-meme")
+# async def upload_meme_endpoint(
+#     file: UploadFile = File(...),
+#     caption: str = Body(...),
+#     category: Optional[str] = Body(None),
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     Upload a meme file to Firebase Storage and store its metadata in Firestore.
+#     
+#     The file is stored in a user-specific directory in the Firebase Storage bucket,
+#     and metadata is stored in the 'memes' collection in Firestore.
+#     """
+#     try:
+#         # Read file content
+#         contents = await file.read()
+#         
+#         # Validate file size (e.g., 5MB max)
+#         if len(contents) > 5 * 1024 * 1024:  # 5MB
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="File size exceeds maximum allowed size of 5MB"
+#             )
+#         
+#         # Upload to Firebase Storage
+#         result = await upload_meme(
+#             file_data=contents,
+#             file_name=file.filename,
+#             content_type=file.content_type or "application/octet-stream",
+#             user_id=current_user.get("uid"),
+#             profile_id=current_user.get("profile_id"),
+#             caption=caption,
+#             category=category or "general"
+#         )
+#         
+#         return {
+#             "success": True,
+#             "message": "File uploaded successfully",
+#             "data": result
+#         }
+#         
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error uploading meme: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Failed to upload file: {str(e)}"
+#         )
 
-@app.get("/memes")
-async def get_memes_endpoint(
-    category: Optional[str] = None,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Retrieve memes for the authenticated user from Firestore.
-    
-    Args:
-        category: Optional category filter
-        limit: Maximum number of memes to return (default: 50, max: 100)
-        current_user: The authenticated user from the dependency
-        
-    Returns:
-        List of meme metadata objects with public URLs
-    """
-    try:
-        # Validate limit
-        limit = max(1, min(limit, 100))  # Enforce reasonable limits
-        
-        # Get memes from Firebase
-        memes = await get_memes(
-            user_id=current_user.get("uid"),
-            profile_id=current_user.get("profile_id"),
-            category=category,
-            limit=limit
-        )
-        
-        return {
-            "success": True,
-            "count": len(memes),
-            "data": memes
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving memes: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve memes"
-        )
+# @app.get("/memes")
+# async def get_memes_endpoint(
+#     category: Optional[str] = None,
+#     limit: int = 50,
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     Retrieve memes for the authenticated user from Firestore.
+#     
+#     Args:
+#         category: Optional category filter
+#         limit: Maximum number of memes to return (default: 50, max: 100)
+#         current_user: The authenticated user from the dependency
+#         
+#     Returns:
+#         List of meme metadata objects with public URLs
+#     """
+#     try:
+#         # Validate limit
+#         limit = max(1, min(limit, 100))  # Enforce reasonable limits
+#         
+#         # Get memes from Firebase
+#         memes = await get_memes(
+#             user_id=current_user.get("uid"),
+#             profile_id=current_user.get("profile_id"),
+#             category=category,
+#             limit=limit
+#         )
+#         
+#         return {
+#             "success": True,
+#             "count": len(memes),
+#             "data": memes
+#         }
+#         
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error retrieving memes: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to retrieve memes"
+#         )
 
-@app.delete("/memes/{meme_id}")
-async def delete_meme_endpoint(
-    meme_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Delete a meme from both Firebase Storage and Firestore.
-    
-    Only the owner of the meme can delete it.
-    """
-    try:
-        success = await delete_meme(
-            meme_id=meme_id,
-            user_id=current_user.get("uid"),
-            profile_id=current_user.get("profile_id")
-        )
-        
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Meme not found or you don't have permission to delete it"
-            )
-            
-        return {
-            "success": True,
-            "message": "Meme deleted successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting meme {meme_id}: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete meme"
-        )
+# @app.delete("/memes/{meme_id}")
+# async def delete_meme_endpoint(
+#     meme_id: str,
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     Delete a meme from both Firebase Storage and Firestore.
+#     
+#     Only the owner of the meme can delete it.
+#     """
+#     try:
+#         success = await delete_meme(
+#             meme_id=meme_id,
+#             user_id=current_user.get("uid"),
+#             profile_id=current_user.get("profile_id")
+#         )
+#         
+#         if not success:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND,
+#                 detail="Meme not found or you don't have permission to delete it"
+#             )
+#             
+#         return {
+#             "success": True,
+#             "message": "Meme deleted successfully"
+#         }
+#         
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error deleting meme {meme_id}: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to delete meme"
+#         )
 
 @app.get("/auth/test")
 async def test_auth_endpoint(current_user: dict = Depends(get_current_user)):
