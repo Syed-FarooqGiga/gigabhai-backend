@@ -101,6 +101,7 @@ class ChatResponse(BaseModel):
     message: str
     timestamp: str
     personality: str
+    conversation_id: Optional[str] = None  # Added conversation_id
 
 class TokenData(BaseModel):
     token: str
@@ -603,7 +604,8 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             return ChatResponse(
                 message=special_response_text,
                 timestamp=datetime.now().isoformat(),
-                personality=personality # Use the personality from the original request
+                personality=personality, # Use the personality from the original request
+                conversation_id=conversation_id # Pass the conversation_id from the request
             )
         
         # Get user ID and profile ID
