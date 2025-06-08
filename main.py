@@ -632,45 +632,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 # Continue with empty history if there's an error
         
         # Detect queries about the AI's creator and override response if matched
-        creator_patterns = [
-            "who created you", "who is your creator", "who built you", "who made you", "who developed you", 
-            "your creator", "your developer", "your owner", "your father", "who is your father", 
-            "who is your owner", "who is your developer", "about your creator", "about your developer", 
-            "about your owner", "about your father", "about this ai", "who designed you", "who programmed you", 
-            "who coded you", "who is behind you", "who is your maker", "who invented you", "who is the maker", 
-            "who is the inventor", "who is the founder", "who is the person behind you", "who is behind this ai",
-            "who made this ai", "who created this ai", "who developed this ai", "who built this ai",
-            "who is responsible for you", "who is responsible for this ai", "who is behind this assistant",
-            "who is behind this bot", "who is behind this chatbot", "who is behind this application",
-            "who is behind this app", "who is behind this project", "who is behind this software",
-            "who is behind this platform", "who is behind this system", "who is behind this service",
-            "who is behind this tool", "who is behind this technology", "who is behind this solution"
-        ]
-        import re
-        message_lower = message.lower() if message else ""
-        # Patterns that should trigger the Syed Farooq custom response
-        syed_farooq_patterns = [
-            r"^who\s+is\s+syed\s+farooq[\s\?\.!]*$",
-            r"^tell\s+me\s+about\s+syed\s+farooq[\s\?\.!]*$",
-            r"^describe\s+syed\s+farooq[\s\?\.!]*$",
-            r"^about\s+syed\s+farooq[\s\?\.!]*$",
-            r"^syed\s+farooq[\s\?\.!]*$",
-            r"^what\s+is\s+syed\s+farooq[\s\?\.!]*$",
-            r"^syed\s+farooq\s+bio[\s\?\.!]*$",
-            r"^syed\s+farooq\s+biography[\s\?\.!]*$",
-            r"^syed\s+farooq\s+summary[\s\?\.!]*$",
-            r"^syed\s+farooq\s+profile[\s\?\.!]*$",
-            r"^syed\s+farooq\s+ai\s+engineer[\s\?\.!]*$",
-            r"^syed\s+farooq\s+from\s+india[\s\?\.!]*$"
-        ]
-        matched_syed = any(re.match(pattern, message_lower.strip()) for pattern in syed_farooq_patterns)
-        if matched_syed:
-            response = "Syed Farooq is a great guy who created me and is an excellent AI engineer from India."
-        else:
-            # Check for any creator-related patterns
-            matched_creator = any(pattern in message_lower for pattern in creator_patterns)
-            if matched_creator:
-                response = "I was created by Syed Farooq, an AI engineering student from India."
+
                 
                 # Also add this information to the system prompt for future context
                 if personality_context and isinstance(personality_context, list):
