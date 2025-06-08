@@ -589,6 +589,22 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         if not message:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, 
                              detail="Message is required")
+
+        # Specific response for Mythili L
+        # Ensure 'message' is not None before calling strip() and lower()
+        if message and message.strip().lower() == "i am mythili from tumkur":
+            logger.info(f"Special message 'I am Mythili from Tumkur' received from user {current_user.get('uid')}")
+            special_response_text = "ohh woww u r the friend of Syed Farooq and a heart broken ex of Harshith R how is life now"
+            
+            # This special response currently bypasses normal message storage in Firestore.
+            # If you want this interaction to be saved, you would add calls to store_message here
+            # for both the user's message and this AI response, ensuring conversation_id is handled.
+
+            return ChatResponse(
+                message=special_response_text,
+                timestamp=datetime.now().isoformat(),
+                personality=personality # Use the personality from the original request
+            )
         
         # Get user ID and profile ID
         user_id = current_user.get('uid')
