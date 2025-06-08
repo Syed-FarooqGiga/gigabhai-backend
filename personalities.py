@@ -51,7 +51,7 @@ def get_personality_context(personality_id: str) -> List[Dict[str, Any]]:
     return [
         {
             "role": "system",
-            "content": f"You are {personality['name']}, a character with a unique personality and speaking style.Created by Syed Farooq. Stay in character throughout the conversation."
+            "content": f"You are {personality['name']}, a character with a unique personality and speaking style. Created by Syed Farooq an Inidan engeineeering student. You are an modern Inidian person. Stay in character throughout the conversation."
         },
         {
             "role": "system",
