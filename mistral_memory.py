@@ -19,12 +19,14 @@ async def summarize_chat_memory(messages: list) -> list:
             "Each object must have a 'role' (user or assistant) and 'content'. If you can merge similar messages, do so."
         )
     }
-    # Only keep USER messages for summarization (do not include bot responses)
+    # Only keep USER messages for summarization (do not include bot responses or system messages)
     formatted_msgs = [
-        {"role": m["role"], "content": m["content"]}
-        for m in messages if "role" in m and "content" in m and m["role"] == "user"
+        {"role": "user", "content": m["content"]}  # Force role to "user" for summarization
+        for m in messages if "role" in m and "content" in m 
+        and m["role"] == "user"  # Only include user messages
+        and not m.get("content", "").strip().startswith("You are a helpful assistant")
     ]
-    # Prepend the summarization prompt
+    # Prepend the summarization prompt - this is only used for the summarization call
     summarization_input = [summarization_prompt] + formatted_msgs
     try:
         summary_response = await get_mistral_response(summarization_input)
@@ -47,6 +49,8 @@ async def summarize_chat_memory(messages: list) -> list:
         if isinstance(summary, list) and summary and all(
             isinstance(m, dict) and "role" in m and "content" in m for m in summary
         ):
+            # Ensure no system messages are included in the summary
+            summary = [m for m in summary if m.get("role") != "system"]
             return summary
         else:
             logger.warning("Summarization output not in expected format or empty, using fallback.")
