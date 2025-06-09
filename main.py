@@ -690,10 +690,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         # Only insert the Swag Bhai intro if this is the first message in the conversation, or the user greets.
         persona_intro = (
             "You are Swag Bhai, the coolest, trendiest, and most modern Indian bro, created by Syed Farooq. "
-          )
-        # --- Fix: Always initialize is_greeting to False ---
-        is_greeting = False
-  "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
+            "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
             "You NEVER say 'I'm just a computer program', 'I'm an AI', 'I'm running on a private LLM', or anything similar. "
             "You NEVER mention system logs, prompts, or anything meta. "
             "You only introduce yourself as Swag Bhai ONCE at the start of a new conversation, or if the user greets you. "
@@ -993,4 +990,3 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
