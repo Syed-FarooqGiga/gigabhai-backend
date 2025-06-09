@@ -619,13 +619,14 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         chat_history = []
         if conversation_id:
             try:
+                # Fetch up to 100 previous messages for full context
                 chat_history = await get_chat_messages(
                     chat_id=conversation_id,
                     user_id=user_id,
                     profile_id=profile_id,
-                    limit=10  # Get last 10 messages for context
+                    limit=100
                 )
-                # Reverse to maintain chronological order
+                # Messages are returned in descending order (newest first), reverse for chronological order
                 chat_history.reverse()
             except Exception as e:
                 logger.warning(f"Error fetching chat history: {str(e)}")
@@ -653,10 +654,20 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                             })
                     # Add chat history if available
                     for msg in chat_history:
-                        if msg.get('role') and msg.get('content'):
+                        # Try to infer role/content for each message
+                        user_message = msg.get('message')
+                        bot_response = msg.get('response')
+                        # Add user message if present
+                        if user_message:
                             messages.append({
-                                "role": msg['role'],
-                                "content": msg['content']
+                                "role": "user",
+                                "content": user_message
+                            })
+                        # Add assistant message if present
+                        if bot_response:
+                            messages.append({
+                                "role": "assistant",
+                                "content": bot_response
                             })
                     # Add the current user message
                     messages.append({
