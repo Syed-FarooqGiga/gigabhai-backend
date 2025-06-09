@@ -712,21 +712,6 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                         "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                     })
         messages.append({"role": "user", "content": message})
-            # Add chat history (already limited to last 8)
-            for msg in chat_history:
-                messages.append(msg)
-            # Always append the current user message last
-            messages.append({"role": "user", "content": message})
-        else:
-            # Default: send only personality context and user message
-            if personality_context and isinstance(personality_context, list):
-                for msg in personality_context:
-                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                        messages.append({
-                            "role": msg['role'],
-                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                        })
-            messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
         if messages[-1]['role'] not in ["user", "tool"]:
