@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uuid  # Added for generating unique IDs
 import logging # Added for logging
+from datetime import datetime # Added for timestamp generation
 from pydantic import BaseModel
 from firebase_admin import auth, firestore
 from firebase_admin.exceptions import FirebaseError
@@ -1005,8 +1006,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             personality="swag",  # Default personality for validation errors
             conversation_id=str(uuid.uuid4()) # Generate a new UUID
         ).model_dump() # Use .model_dump() for FastAPI < 0.95.0, or .dict() if appropriate
-    )
-        ).dict()
     )
 
 if __name__ == "__main__":
