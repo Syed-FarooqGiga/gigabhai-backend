@@ -15,6 +15,34 @@ logger = logging.getLogger(__name__)
 # Initialize Firestore
 db = firestore.client()
 
+async def store_compressed_memory(chat_id: str, user_id: str, profile_id: str, compressed_memory: list):
+    """
+    Store compressed (summarized) chat memory for a conversation under a summary index per user.
+    """
+    try:
+        effective_user_id = profile_id or user_id
+        summary_ref = db.collection('users').document(effective_user_id).collection('summary').document(chat_id)
+        summary_ref.set({'compressed_memory': compressed_memory})
+        return True
+    except Exception as e:
+        logger.error(f"Error storing compressed memory: {str(e)}")
+        return False
+
+async def get_compressed_memory(chat_id: str, user_id: str, profile_id: str):
+    """
+    Retrieve compressed (summarized) chat memory for a conversation from the summary index per user.
+    """
+    try:
+        effective_user_id = profile_id or user_id
+        summary_ref = db.collection('users').document(effective_user_id).collection('summary').document(chat_id)
+        summary_doc = summary_ref.get()
+        if summary_doc.exists:
+            return summary_doc.to_dict().get('compressed_memory', [])
+        return []
+    except Exception as e:
+        logger.error(f"Error retrieving compressed memory: {str(e)}")
+        return []
+
 async def store_message(
     user_id: str, 
     profile_id: str = None, 
