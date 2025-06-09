@@ -615,21 +615,25 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         # Get personality context
         personality_context = get_personality_context(personality)
         
-        # Get chat history for context if conversation_id is provided
+        # Get compressed memory for context if available
         chat_history = []
         if conversation_id:
             try:
-                # Fetch up to 100 previous messages for full context
-                chat_history = await get_chat_messages(
-                    chat_id=conversation_id,
-                    user_id=user_id,
-                    profile_id=profile_id,
-                    limit=100
-                )
-                # Messages are returned in descending order (newest first), reverse for chronological order
-                chat_history.reverse()
+                from firebase_memory_manager import get_compressed_memory
+                compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
+                if compressed_memory and isinstance(compressed_memory, list):
+                    chat_history = compressed_memory
+                else:
+                    # Fallback: Fetch up to 100 previous messages for full context
+                    chat_history = await get_chat_messages(
+                        chat_id=conversation_id,
+                        user_id=user_id,
+                        profile_id=profile_id,
+                        limit=100
+                    )
+                    chat_history.reverse()
             except Exception as e:
-                logger.warning(f"Error fetching chat history: {str(e)}")
+                logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
                 # Continue with empty history if there's an error
         
         # Detect queries about the AI's creator and override response if matched
@@ -702,6 +706,31 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # Don't fail the request if storage fails, just log it
             if not conversation_id:
                 conversation_id = str(uuid.uuid4())
+        
+        # After storing, summarize the last 100 messages and store as compressed memory
+        try:
+            from firebase_memory_manager import get_chat_messages, store_compressed_memory
+            from mistral_memory import summarize_chat_memory
+            last_100_msgs = await get_chat_messages(
+                chat_id=conversation_id,
+                user_id=user_id,
+                profile_id=profile_id,
+                limit=100
+            )
+            last_100_msgs.reverse()
+            # Format as role/content pairs for summarization
+            formatted_msgs = []
+            for msg in last_100_msgs:
+                user_message = msg.get('message')
+                bot_response = msg.get('response')
+                if user_message:
+                    formatted_msgs.append({"role": "user", "content": user_message})
+                if bot_response:
+                    formatted_msgs.append({"role": "assistant", "content": bot_response})
+            compressed_memory = await summarize_chat_memory(formatted_msgs)
+            await store_compressed_memory(conversation_id, user_id, profile_id, compressed_memory)
+        except Exception as e:
+            logger.warning(f"Failed to summarize and store compressed memory: {str(e)}")
         
         # Sanitize the response to remove any mention of 'Mistral' or 'Mistral AI'
         if isinstance(response, str):
