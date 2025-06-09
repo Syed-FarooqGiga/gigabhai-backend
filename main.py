@@ -672,60 +672,43 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         if fallback_used:
             logger.info(f"Fallback context used (last 20 messages): {chat_history}")
 
-        
-        # Detect queries about the AI's creator and override response if matched
+        # --- Fix: Guarantee response is always assigned and last message role is correct ---
+        # Add system creator message if not present
+        creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
+        if personality_context and isinstance(personality_context, list) and creator_message not in personality_context:
+            personality_context.insert(0, creator_message)
 
-                
-                # Also add this information to the system prompt for future context
+        # Rebuild the messages list: system/personality, chat history, then current user message
+        messages = []
         if personality_context and isinstance(personality_context, list):
-            # Add a system message about the creator if not already present
-            creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
-            if creator_message not in personality_context:
-                personality_context.insert(0, creator_message)
-            else:
-                try:
-                    # Format messages for Mistral API
-                    messages = []
-                    # Add personality context (system messages)
-                    for msg in personality_context:
-                        if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                            messages.append({
-                                "role": msg['role'],
-                                "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                            })
-                    # Add chat history if available
-                    for msg in chat_history:
-                        # Try to infer role/content for each message
-                        user_message = msg.get('message')
-                        bot_response = msg.get('response')
-                        # Add user message if present
-                        if user_message:
-                            messages.append({
-                                "role": "user",
-                                "content": user_message
-                            })
-                        # Add assistant message if present
-                        if bot_response:
-                            messages.append({
-                                "role": "assistant",
-                                "content": bot_response
-                            })
-                    # Add the current user message
+            for msg in personality_context:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
                     messages.append({
-                        "role": "user",
-                        "content": message
+                        "role": msg['role'],
+                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                     })
-                    # Log the full prompt/messages sent to the LLM for debugging
-                    logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
-                    response = await get_mistral_response(messages)
-                except Exception as e:
-                    logger.error(f"Error generating response with Mistral: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to generate response"
-                    )
-        
+        # Add chat history (already limited to last 8)
+        for msg in chat_history_limited:
+            messages.append(msg)
+        # Always append the current user message last
+        messages.append({"role": "user", "content": message})
+
+        # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
+        if messages[-1]['role'] not in ["user", "tool"]:
+            logger.warning(f"Last message role for Mistral is {messages[-1]['role']}; appending user message to fix.")
+            messages.append({"role": "user", "content": message})
+
+        logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        response = None
+        try:
+            response = await get_mistral_response(messages)
+        except Exception as e:
+            logger.error(f"Error generating response with Mistral: {str(e)}")
+            logger.error(traceback.format_exc())
+            response = "Sorry, the AI could not generate a response at this time."
+
+        # --- End Fix ---
+
         # Store the conversation in Firestore
         try:
             conversation_id = await store_message(
@@ -774,6 +757,8 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             forbidden_keywords = ["mistral ai", "mistral", "Mistral AI", "Mistral"]
             for keyword in forbidden_keywords:
                 response = response.replace(keyword, "AI")
+        if not response:
+            response = "Sorry, the AI could not generate a response."
 
         # Return the sanitized response
         return {
