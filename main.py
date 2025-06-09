@@ -617,11 +617,12 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         
         # Get compressed memory for context if available
         chat_history = []
+        fallback_used = False
         if conversation_id:
             try:
-                from firebase_memory_manager import get_compressed_memory
+                from firebase_memory_manager import get_compressed_memory, get_chat_messages
                 compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
-                if compressed_memory and isinstance(compressed_memory, list):
+                if compressed_memory and isinstance(compressed_memory, list) and len(compressed_memory) > 0:
                     chat_history = compressed_memory
                 else:
                     # Fallback: Fetch up to 100 previous messages for full context
@@ -632,9 +633,45 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                         limit=100
                     )
                     chat_history.reverse()
+                    # Format fallback as role/content pairs
+                    formatted_fallback = []
+                    for msg in chat_history:
+                        if msg.get('message'):
+                            formatted_fallback.append({"role": "user", "content": msg['message']})
+                        if msg.get('response'):
+                            formatted_fallback.append({"role": "assistant", "content": msg['response']})
+                    chat_history = formatted_fallback[-20:]  # fallback to last 20 messages
+                    fallback_used = True
             except Exception as e:
                 logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
-                # Continue with empty history if there's an error
+                chat_history = []
+                fallback_used = True
+        
+        # Build the full context for Mistral
+        messages = []
+        # Add personality context (system messages)
+        if personality_context and isinstance(personality_context, list):
+            for msg in personality_context:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                    messages.append({
+                        "role": msg['role'],
+                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                    })
+        # Add chat history (summary or fallback), but limit to last 8 role/content pairs
+        chat_history_limited = []
+        if chat_history:
+            for msg in chat_history:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                    chat_history_limited.append({"role": msg['role'], "content": msg['content']})
+        # Only keep the last 8
+        chat_history_limited = chat_history_limited[-8:]
+        for msg in chat_history_limited:
+            messages.append(msg)
+        # Log the context sent to Mistral
+        logger.info(f"Context sent to Mistral: {messages}")
+        if fallback_used:
+            logger.info(f"Fallback context used (last 20 messages): {chat_history}")
+
         
         # Detect queries about the AI's creator and override response if matched
 
@@ -887,4 +924,4 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
