@@ -11,8 +11,8 @@ from firebase_auth import verify_firebase_token
 from mistral_handler import get_mistral_response
 from personalities import get_personality_context
 from firebase_memory_manager import (
-    store_message, 
-    get_chat_history, 
+    store_message,
+    get_chat_history,
     get_chat_messages,
     update_chat_title,
     delete_chat
