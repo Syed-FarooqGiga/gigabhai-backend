@@ -611,11 +611,15 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # If you want this interaction to be saved, you would add calls to store_message here
             # for both the user's message and this AI response, ensuring conversation_id is handled.
 
+            # Defensive: Always return a valid conversation_id
+            if not conversation_id:
+                import uuid
+                conversation_id = str(uuid.uuid4())
             return ChatResponse(
                 message=special_response_text,
                 timestamp=datetime.now().isoformat(),
                 personality=personality, # Use the personality from the original request
-                conversation_id=conversation_id # Always return a valid conversation_id
+                conversation_id=conversation_id
             )
         
         # Get user ID and profile ID
@@ -812,14 +816,14 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
         # Always return a valid conversation_id in error response if possible
-        if 'conversation_id' in locals() and conversation_id:
-            return ChatResponse(
-                message=str(he.detail),
-                timestamp=datetime.now().isoformat(),
-                personality=data.get("personality", "swag") if 'data' in locals() else "swag",
-                conversation_id=conversation_id
-            )
-        raise
+        import uuid
+        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+        return ChatResponse(
+            message=str(he.detail),
+            timestamp=datetime.now().isoformat(),
+            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
+            conversation_id=cid
+        )
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
         # Defensive: Return a response with a generated conversation_id
@@ -835,11 +839,12 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         logger.error(traceback.format_exc())
         # Defensive: Return a response with a generated conversation_id
         import uuid
+        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
         return ChatResponse(
             message="An unexpected error occurred",
             timestamp=datetime.now().isoformat(),
             personality=data.get("personality", "swag") if 'data' in locals() else "swag",
-            conversation_id=conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+            conversation_id=cid
         )
 
 @app.put("/conversations/{conversation_id}")
