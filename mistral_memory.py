@@ -14,9 +14,9 @@ async def summarize_chat_memory(messages: list) -> list:
             "You are a helpful assistant. The following is a conversation history. "
             "Select the 10 most important messages (user or assistant) that best capture the context, "
             "and summarize or compress them if possible. ALWAYS include any key facts, numbers, measurements, medical details, symptoms, diagnoses, or user questions. "
-            "NEVER omit any numbers, measurements, or important details about the user's health, medical conditions, or personal facts, and every important detail which can be used to answer the user's questions "
-            "Return the result as a list of message objects in JSON, each with a 'role' (user or assistant) and 'content'. Do not include any explanations. "
-            "If you can merge similar messages, do so."
+            "NEVER omit any numbers, measurements, or important details about the user's health, medical conditions, or personal facts, and every important detail which can be used to answer the user's questions. "
+            "Respond ONLY with a valid JSON array of objects, and nothing else. Do NOT add explanations, greetings, or comments. "
+            "Each object must have a 'role' (user or assistant) and 'content'. If you can merge similar messages, do so."
         )
     }
     # Only keep USER messages for summarization (do not include bot responses)
@@ -30,15 +30,18 @@ async def summarize_chat_memory(messages: list) -> list:
         summary_response = await get_mistral_response(summarization_input)
         logger.info(f"Raw summary response from Mistral: {summary_response}")  # Log for debugging
         import json
-        # Guard: Only parse if response looks like a JSON list
-        if not summary_response or not summary_response.strip().startswith("["):
-            logger.warning("Summary response is empty or not a JSON list, using fallback.")
-            logger.info(f"Fallback context (last 20 messages): {formatted_msgs[-20:]}")
-            return formatted_msgs[-20:]  # fallback: last 20 messages
+        import re
+        # Try to extract the first JSON array from the response using regex
+        def extract_json_list(text):
+            match = re.search(r'\[.*?\]', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(0))
+            raise ValueError("No JSON array found")
+        summary = None
         try:
-            summary = json.loads(summary_response)
+            summary = extract_json_list(summary_response)
         except Exception as parse_err:
-            logger.warning(f"Failed to parse summary as JSON: {parse_err}")
+            logger.warning(f"Failed to extract/parse summary as JSON: {parse_err}")
             summary = None
         # Validate summary is a list of dicts with role/content and not empty
         if isinstance(summary, list) and summary and all(
