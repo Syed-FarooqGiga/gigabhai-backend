@@ -659,34 +659,69 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # No conversation_id (new conversation): DO NOT fetch any history or summary
             chat_history = []
             fallback_used = False
-        # Defensive: Never allow chat_history to contain data from any other conversation
-        # This is already enforced by scoping all fetches by conversation_id above.
-        
-        # Build the full context for Mistral (guaranteed to be scoped to this conversation only)
-        messages = []
-        # Add personality context (system messages)
-        if personality_context and isinstance(personality_context, list):
-            for msg in personality_context:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                    })
-        # Add chat history (summary or fallback), but limit to last 8 role/content pairs
-        chat_history_limited = []
-        if chat_history:
-            for msg in chat_history:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    chat_history_limited.append({"role": msg['role'], "content": msg['content']})
-        # Only keep the last 8
-        chat_history_limited = chat_history_limited[-8:]
-        for msg in chat_history_limited:
-            messages.append(msg)
-        # Log the context sent to Mistral
-        logger.info(f"Context sent to Mistral (conversation_id={conversation_id}): {messages}")
-        if fallback_used:
-            logger.info(f"Fallback context used (last 20 messages) for conversation_id={conversation_id}")
 
+return ChatResponse(
+message=special_response_text,
+timestamp=datetime.now().isoformat(),
+personality=personality, # Use the personality from the original request
+conversation_id=conversation_id # Pass the conversation_id from the request
+)
+    
+# Get user ID and profile ID
+user_id = current_user.get('uid')
+profile_id = current_user.get('profile_id')
+    
+# Get personality context
+personality_context = get_personality_context(personality)
+    
+# Get compressed memory or chat history for THIS conversation only
+chat_history = []
+fallback_used = False
+if conversation_id:
+try:
+from firebase_memory_manager import get_compressed_memory, get_chat_messages
+# Only ever fetch memory/history for the current conversation_id
+compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
+if compressed_memory and isinstance(compressed_memory, list) and len(compressed_memory) > 0:
+chat_history = compressed_memory
+else:
+# Fallback: Fetch up to 100 previous messages for this conversation only
+chat_history = await get_chat_messages(
+chat_id=conversation_id,
+user_id=user_id,
+profile_id=profile_id,
+limit=100
+)
+chat_history.reverse()
+# Format fallback as role/content pairs
+formatted_fallback = []
+for msg in chat_history:
+if msg.get('message'):
+formatted_fallback.append({"role": "user", "content": msg['message']})
+if msg.get('response'):
+formatted_fallback.append({"role": "assistant", "content": msg['response']})
+chat_history = formatted_fallback[-20:]  # fallback to last 20 messages
+fallback_used = True
+except Exception as e:
+logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
+chat_history = []
+fallback_used = True
+else:
+# No conversation_id (new conversation): DO NOT fetch any history or summary
+chat_history = []
+fallback_used = False
+    
+# Defensive: Never allow chat_history to contain data from any other conversation
+# This is already enforced by scoping all fetches by conversation_id above.
+    
+# Build the full context for Mistral (guaranteed to be scoped to this conversation only)
+messages = []
+# Always prepend a system message to clarify which persona is now active
+persona_name = {
+"swag": "Swag Bhai",
+"roast": "Roast Bhai",
+"jugadu": "Jugadu Bhai",
+}.get(personality, personality.capitalize() + " Bhai")
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
         # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
         # Only insert the Swag Bhai intro if this is the first message in the conversation, or the user greets.
@@ -736,25 +771,15 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             messages.append({"role": "user", "content": message})
         elif is_followup:
             # If there is any chat history summary or old messages, prepend a special system instruction
-            if chat_history_limited:
+            if chat_history:
                 messages.append({
                     "role": "system",
                     "content": (
-                        "The following summary or old messages are provided only for reference. "
-                        "Use them ONLY if they are relevant to the user's current question or topic. "
-                        "Otherwise, ignore them."
+                        "These are the old messages from this conversation. Use them ONLY if necessary to answer the user's current message. Focus your reply on the current message."
                     )
                 })
-            # Add personality context (system messages)
-            if personality_context and isinstance(personality_context, list):
-                for msg in personality_context:
-                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                        messages.append({
-                            "role": msg['role'],
-                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                        })
             # Add chat history (already limited to last 8)
-            for msg in chat_history_limited:
+            for msg in chat_history:
                 messages.append(msg)
             # Always append the current user message last
             messages.append({"role": "user", "content": message})
