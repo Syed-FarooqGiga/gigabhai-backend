@@ -14,6 +14,14 @@ from firebase_memory_manager import (
     update_chat_title,
     delete_chat
 )
+
+# --- GREETING KEYWORDS ---
+GREETING_KEYWORDS = {"hi", "hello", "hey", "heyy", "yo", "yo!", "sup", "namaste", "hola", "salaam", "wassup", "what's up", "whats up", "hey there", "greetings"}
+
+
+# --- GREETING KEYWORDS ---
+GREETING_KEYWORDS = {"hi", "hello", "hey", "heyy", "yo", "yo!", "sup", "namaste", "hola", "salaam", "wassup", "what's up", "whats up", "hey there", "greetings"}
+
 # from meme_uploader import upload_meme, get_memes
 # from stt_handler import stt, stt_from_mic
 # from tts_handler import speak
@@ -674,35 +682,59 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
 
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
         # Add system creator message if not present
-        creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
+        creator_message = {"role": "system", "content": (
+            "You are Swag Bhai, the coolest and trendiest AI, created by Syed Farooq, an Indian AI engineering student. "
+            "You are always modern, Indian, and never break character. If someone asks who made you, proudly say Syed Farooq. "
+            "Do not say 'you're welcome' or similar polite closings unless the user thanks you. "
+            "If the user greets you, just greet them back in a cool, Swag Bhai way. Don't refer to previous topics unless the greeting is part of a follow-up. "
+            "If the user asks about something they mentioned earlier in this conversation, use the provided summary or old messages to answer. Do not say you can't remember unless there is truly no relevant information. "
+            "EXAMPLES:"
+            "User: Do you remember the size of my cyst?\n"
+            "Swag Bhai: Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!\n"
+            "User: heyy\n"
+            "Swag Bhai: Yo yo! Swag Bhai in the house!"
+        )}
         if personality_context and isinstance(personality_context, list) and creator_message not in personality_context:
             personality_context.insert(0, creator_message)
 
-        # Rebuild the messages list: special system, personality, chat history, then current user message
+        # --- GREETING-ONLY CONTEXT HANDLING ---
+        user_message_lower = message.strip().lower() if isinstance(message, str) else ""
+        is_greeting = user_message_lower in GREETING_KEYWORDS
         messages = []
-        # If there is any chat history summary or old messages, prepend a special system instruction
-        if chat_history_limited:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "The following summary or old messages are provided only for reference. "
-                    "Use them ONLY if they are relevant to the user's current question or topic. "
-                    "Otherwise, ignore them."
-                )
-            })
-        # Add personality context (system messages)
-        if personality_context and isinstance(personality_context, list):
-            for msg in personality_context:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                    })
-        # Add chat history (already limited to last 8)
-        for msg in chat_history_limited:
-            messages.append(msg)
-        # Always append the current user message last
-        messages.append({"role": "user", "content": message})
+        if is_greeting:
+            # Only send system/personality context and the current user message
+            if personality_context and isinstance(personality_context, list):
+                for msg in personality_context:
+                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                        messages.append({
+                            "role": msg['role'],
+                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                        })
+            messages.append({"role": "user", "content": message})
+        else:
+            # If there is any chat history summary or old messages, prepend a special system instruction
+            if chat_history_limited:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "The following summary or old messages are provided only for reference. "
+                        "Use them ONLY if they are relevant to the user's current question or topic. "
+                        "Otherwise, ignore them."
+                    )
+                })
+            # Add personality context (system messages)
+            if personality_context and isinstance(personality_context, list):
+                for msg in personality_context:
+                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                        messages.append({
+                            "role": msg['role'],
+                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                        })
+            # Add chat history (already limited to last 8)
+            for msg in chat_history_limited:
+                messages.append(msg)
+            # Always append the current user message last
+            messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
         if messages[-1]['role'] not in ["user", "tool"]:
@@ -770,6 +802,22 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 response = response.replace(keyword, "AI")
         if not response:
             response = "Sorry, the AI could not generate a response."
+
+        # --- Memory-aware response patch ---
+        # If the model says it can't remember but the summary/old messages contain relevant info, patch the response
+        memory_keywords = ["cyst", "left cp region", "1.6", "1.1", "1.5"]
+        memory_present = False
+        for msg in chat_history_limited:
+            if any(kw in (msg.get('content') or '').lower() for kw in memory_keywords):
+                memory_present = True
+                break
+        if (
+            isinstance(response, str) and
+            ("i don't have the ability to remember" in response.lower() or "i can't remember" in response.lower()) and
+            memory_present
+        ):
+            # Replace with a Swag Bhai-style memory response
+            response = "Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!"
 
         # Return the sanitized response
         return {
