@@ -40,6 +40,13 @@ import subprocess
 import traceback
 import logging
 
+# Generic chit-chat/greeting keywords for chat endpoint
+GENERIC_CHITCHAT_KEYWORDS = [
+    "hi", "hello", "hey", "yo", "sup", "what's up", "how are you", "good morning", "good evening", "good night",
+    "namaste", "salaam", "salam", "hola", "bonjour", "greetings", "wassup", "whatsup", "heyy", "heyyy", "hey there",
+    "hello there", "yo bro", "yo bhai", "bhai", "bro", "brother", "dude", "buddy"
+]
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
