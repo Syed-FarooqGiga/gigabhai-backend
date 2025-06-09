@@ -884,7 +884,6 @@ persona_name = {
             # Clean up excessive whitespace
             response = response.strip()
         # --- END POST-PROCESSING ---
-        }
         
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
