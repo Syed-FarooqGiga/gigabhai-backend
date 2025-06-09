@@ -30,6 +30,10 @@ async def summarize_chat_memory(messages: list) -> list:
         summary_response = await get_mistral_response(summarization_input)
         logger.info(f"Raw summary response from Mistral: {summary_response}")  # Log for debugging
         import json
+        # Guard: Only parse if response looks like a JSON list
+        if not summary_response or not summary_response.strip().startswith("["):
+            logger.warning("Summary response is empty or not a JSON list, using fallback.")
+            return formatted_msgs[-20:]  # fallback: last 20 messages
         try:
             summary = json.loads(summary_response)
         except Exception as parse_err:
@@ -46,3 +50,4 @@ async def summarize_chat_memory(messages: list) -> list:
     except Exception as e:
         logger.error(f"Failed to summarize chat memory: {e}")
         return formatted_msgs[-20:]  # fallback: last 20 messages
+
