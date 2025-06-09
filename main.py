@@ -714,14 +714,19 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             if not any(msg.get('content') == persona_intro for msg in personality_context if isinstance(msg, dict)):
                 personality_context.insert(0, {"role": "system", "content": persona_intro})
         # --- END SYSTEM PROMPT REWRITE ---
+        # Build messages for LLM - only include persona context and user/assistant messages
         messages = []
         if personality_context and isinstance(personality_context, list):
             for msg in personality_context:
                 if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                    })
+                    # Only include persona system messages, not summarizer/meta prompts
+                    if msg['role'] == 'system' and 'summarize' not in str(msg.get('content', '')).lower():
+                        messages.append({
+                            "role": msg['role'],
+                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                        })
+        
+        # Add the user's current message
         messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
@@ -740,6 +745,17 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
 
         # --- End Fix ---
 
+        # Ensure we only get the assistant's response (not system/meta messages)
+        if isinstance(response, dict) and response.get("role") == "assistant":
+            response = response.get("content", "")
+        elif isinstance(response, list):
+            # Find the first assistant message in the response
+            assistant_responses = [m.get("content", "") for m in response if isinstance(m, dict) and m.get("role") == "assistant"]
+            response = assistant_responses[0] if assistant_responses else ""
+        
+        # Ensure response is a string
+        response = str(response) if response is not None else ""
+        
         # Store the conversation in Firestore
         try:
             conversation_id = await store_message(
@@ -819,7 +835,15 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # Clean up excessive whitespace
             response = response.strip()
         # --- END POST-PROCESSING ---
-        
+        final_chat_response = ChatResponse(
+            message=response,  # This is the sanitized AI message
+            timestamp=datetime.utcnow().isoformat(),
+            personality=personality,  # This should be in scope from earlier in the function
+            conversation_id=conversation_id
+        )
+        logger.info(f"Outgoing ChatResponse (Success Path) for conversation_id {conversation_id}: {{final_chat_response.model_dump_json()}}")
+        return final_chat_response
+
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
         # Safely determine conversation_id and personality for the error response
