@@ -671,20 +671,6 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             "roast": "Roast Bhai",
             "jugadu": "Jugadu Bhai",
         }.get(personality, personality.capitalize() + " Bhai")
-chat_history = []
-fallback_used = False
-    
-# Defensive: Never allow chat_history to contain data from any other conversation
-# This is already enforced by scoping all fetches by conversation_id above.
-    
-# Build the full context for Mistral (guaranteed to be scoped to this conversation only)
-messages = []
-# Always prepend a system message to clarify which persona is now active
-persona_name = {
-"swag": "Swag Bhai",
-"roast": "Roast Bhai",
-"jugadu": "Jugadu Bhai",
-}.get(personality, personality.capitalize() + " Bhai")
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
         # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
         # Only insert the Swag Bhai intro if this is the first message in the conversation, or the user greets.
