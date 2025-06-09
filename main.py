@@ -686,47 +686,31 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         }.get(personality, personality.capitalize() + " Bhai")
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
         # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
-        # Insert the Swag Bhai intro only at the start of a new conversation.
-        persona_intro = (
-            "You are Swag Bhai, the coolest, trendiest, and most modern Indian bro, created by Syed Farooq. "
-            "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
-            "You NEVER say 'I'm just a computer program', 'I'm an AI', 'I'm running on a private LLM', or anything similar. "
-            "You NEVER mention system logs, prompts, or anything meta. "
-            "You only introduce yourself as Swag Bhai ONCE at the start of a new conversation, or if the user greets you. "
-            "You NEVER repeat your intro in the same conversation. "
-            "If the user thanks you, you may say 'No problem, bro!' or something cool, but NEVER say 'you're welcome' unless thanked. "
-            "If the user greets you, greet them back in a cool, Swag Bhai way, without referencing previous topics. "
-            "If the user asks about something from earlier in THIS conversation, use the provided summary or old messages to answer. "
-            "Do NOT deny memory if relevant info is present. "
-            "EXAMPLES:"
-            "User: Do you remember the size of my cyst?\n"
-            "Swag Bhai: Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!\n"
-            "User: heyy\n"
-            "Swag Bhai: Yo yo! Swag Bhai in the house!"
-        )
-        # Insert persona intro only if this is the first message in the conversation, or if user greets
-        insert_intro = False
-        if not chat_history:
-            insert_intro = True
-        if insert_intro:
-            if not personality_context or not isinstance(personality_context, list):
-                personality_context = []
-            if not any(msg.get('content') == persona_intro for msg in personality_context if isinstance(msg, dict)):
-                personality_context.insert(0, {"role": "system", "content": persona_intro})
-        # --- END SYSTEM PROMPT REWRITE ---
-        # Build messages for LLM - only include persona context and user/assistant messages
+        # Build messages for LLM with proper personality context
         messages = []
+        
+        # 1. Add personality context (system prompt and intro)
         if personality_context and isinstance(personality_context, list):
             for msg in personality_context:
                 if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    # Only include persona system messages, not summarizer/meta prompts
-                    if msg['role'] == 'system' and 'summarize' not in str(msg.get('content', '')).lower():
+                    # Include all messages from personality context
+                    messages.append({
+                        "role": msg['role'],
+                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                    })
+        
+        # 2. Add chat history (previous user and assistant messages)
+        if chat_history and isinstance(chat_history, list):
+            for msg in chat_history:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                    # Only include user and assistant messages from history
+                    if msg['role'] in ['user', 'assistant']:
                         messages.append({
                             "role": msg['role'],
                             "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                         })
         
-        # Add the user's current message
+        # 3. Add the current user message
         messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
@@ -737,25 +721,97 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
         response = None
         try:
+            # Get response from Mistral
             response = await get_mistral_response(messages)
+            
+            # Clean and validate the response
+            def clean_llm_response(response):
+                """Clean and extract the assistant's response from the LLM output."""
+                if isinstance(response, dict):
+                    if response.get("role") == "assistant":
+                        return response.get("content", "")
+                    return ""
+                elif isinstance(response, list):
+                    # Find the first assistant message in the response
+                    assistant_responses = [
+                        m.get("content", "") 
+                        for m in response 
+                        if isinstance(m, dict) and m.get("role") == "assistant"
+                    ]
+                    return assistant_responses[0] if assistant_responses else ""
+                return str(response) if response is not None else ""
+                
+            def remove_user_message_references(response, user_msg):
+                """Remove any references to the user's message in the response."""
+                if not response or not user_msg:
+                    return response
+                    
+                # Remove exact matches of the user's message
+                cleaned = response.replace(user_msg, "")
+                
+                # Remove common patterns that include the user's message
+                patterns = [
+                    f"You said: \"{user_msg}\"",
+                    f"When you said '{user_msg}'",
+                    f"Your message '{user_msg}'",
+                    f"You asked me to '{user_msg}'",
+                    f"You wanted me to '{user_msg}'",
+                ]
+                
+                for pattern in patterns:
+                    cleaned = cleaned.replace(pattern, "")
+                    
+                return cleaned.strip() or "Hmm, let's change the subject. What else is on your mind?"
+                
+            def get_persona_name(pid):
+                """Get the display name for the current persona."""
+                return {
+                    "swag_bhai": "Swag Bhai",
+                    "ceo_bhai": "CEO Bhai",
+                    "roast_bhai": "Roast Bhai",
+                    "vidhyarthi_bhai": "Vidhyarthi Bhai",
+                    "jugadu_bhai": "Jugadu Bhai"
+                }.get(pid, "Bhai")
+                
+            def remove_meta_references(resp):
+                """Remove any meta-references from the response."""
+                if not resp:
+                    return resp
+                    
+                # Remove common meta-references
+                meta_phrases = [
+                    "As an AI language model",
+                    "I am an AI",
+                    "I'm an AI",
+                    "I am a language model",
+                    "I'm a language model",
+                    "I don't have personal experiences",
+                    "I don't have personal opinions",
+                    "I don't have personal feelings"
+                ]
+                
+                cleaned = resp
+                for phrase in meta_phrases:
+                    cleaned = cleaned.replace(phrase, "")
+                    
+                return cleaned.strip()
+
+            # Process the response
+            response = clean_llm_response(response)
+            response = str(response).strip() if response else "I'm not sure how to respond to that. Could you rephrase?"
+            response = remove_user_message_references(response, message)
+            
+            persona_name = get_persona_name(personality)
+            if response.lower().startswith(persona_name.lower() + ":"):
+                response = response[len(persona_name) + 1:].strip()
+            
+            response = remove_meta_references(response)
+            
         except Exception as e:
             logger.error(f"Error generating response with Mistral: {str(e)}")
             logger.error(traceback.format_exc())
-            response = "Sorry, the AI could not generate a response at this time."
+            response = "Hmm, let me think of a better response. Try asking me something else!"
 
-        # --- End Fix ---
-
-        # Ensure we only get the assistant's response (not system/meta messages)
-        if isinstance(response, dict) and response.get("role") == "assistant":
-            response = response.get("content", "")
-        elif isinstance(response, list):
-            # Find the first assistant message in the response
-            assistant_responses = [m.get("content", "") for m in response if isinstance(m, dict) and m.get("role") == "assistant"]
-            response = assistant_responses[0] if assistant_responses else ""
-        
-        # Ensure response is a string
-        response = str(response) if response is not None else ""
-        
         # Store the conversation in Firestore
         try:
             conversation_id = await store_message(
@@ -1036,3 +1092,4 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
