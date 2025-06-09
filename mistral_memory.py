@@ -19,10 +19,10 @@ async def summarize_chat_memory(messages: list) -> list:
             "If you can merge similar messages, do so."
         )
     }
-    # Only keep role/content for summarization
+    # Only keep USER messages for summarization (do not include bot responses)
     formatted_msgs = [
         {"role": m["role"], "content": m["content"]}
-        for m in messages if "role" in m and "content" in m
+        for m in messages if "role" in m and "content" in m and m["role"] == "user"
     ]
     # Prepend the summarization prompt
     summarization_input = [summarization_prompt] + formatted_msgs
@@ -33,6 +33,7 @@ async def summarize_chat_memory(messages: list) -> list:
         # Guard: Only parse if response looks like a JSON list
         if not summary_response or not summary_response.strip().startswith("["):
             logger.warning("Summary response is empty or not a JSON list, using fallback.")
+            logger.info(f"Fallback context (last 20 messages): {formatted_msgs[-20:]}")
             return formatted_msgs[-20:]  # fallback: last 20 messages
         try:
             summary = json.loads(summary_response)
@@ -50,4 +51,3 @@ async def summarize_chat_memory(messages: list) -> list:
     except Exception as e:
         logger.error(f"Failed to summarize chat memory: {e}")
         return formatted_msgs[-20:]  # fallback: last 20 messages
-
