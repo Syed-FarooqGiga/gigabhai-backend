@@ -678,8 +678,19 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         if personality_context and isinstance(personality_context, list) and creator_message not in personality_context:
             personality_context.insert(0, creator_message)
 
-        # Rebuild the messages list: system/personality, chat history, then current user message
+        # Rebuild the messages list: special system, personality, chat history, then current user message
         messages = []
+        # If there is any chat history summary or old messages, prepend a special system instruction
+        if chat_history_limited:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "The following summary or old messages are provided only for reference. "
+                    "Use them ONLY if they are relevant to the user's current question or topic. "
+                    "Otherwise, ignore them."
+                )
+            })
+        # Add personality context (system messages)
         if personality_context and isinstance(personality_context, list):
             for msg in personality_context:
                 if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
