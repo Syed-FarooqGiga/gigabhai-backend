@@ -16,11 +16,9 @@ from firebase_memory_manager import (
 )
 
 # --- GREETING KEYWORDS ---
-GREETING_KEYWORDS = {"hi", "hello", "hey", "heyy", "yo", "yo!", "sup", "namaste", "hola", "salaam", "wassup", "what's up", "whats up", "hey there", "greetings"}
 
 
 # --- GREETING KEYWORDS ---
-GREETING_KEYWORDS = {"hi", "hello", "hey", "heyy", "yo", "yo!", "sup", "namaste", "hola", "salaam", "wassup", "what's up", "whats up", "hey there", "greetings"}
 
 # from meme_uploader import upload_meme, get_memes
 # from stt_handler import stt, stt_from_mic
@@ -39,20 +37,6 @@ from functools import lru_cache
 import subprocess
 import traceback
 import logging
-
-# Generic chit-chat/greeting keywords for chat endpoint
-GENERIC_CHITCHAT_KEYWORDS = [
-    "hi", "hello", "hey", "yo", "sup", "what's up", "how are you", "good morning", "good evening", "good night",
-    "namaste", "salaam", "salam", "hola", "bonjour", "greetings", "wassup", "whatsup", "heyy", "heyyy", "hey there",
-    "hello there", "yo bro", "yo bhai", "bhai", "bro", "brother", "dude", "buddy"
-]
-
-# Keywords that indicate the user is following up or referencing previous context
-FOLLOWUP_KEYWORDS = [
-    "what about", "what did", "what was", "can you remind", "do you remember", "remind me", "earlier", "previously", "before",
-    "last time", "as i said", "as you said", "as mentioned", "from earlier", "from before", "about that", "about earlier", "about before",
-    "previous message", "previous chat", "previous conversation", "in our last chat", "in our conversation"
-]
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -608,6 +592,10 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         message = data.get("message")
         personality = data.get("personality", "swag")
         conversation_id = data.get("conversation_id")
+        # Always ensure conversation_id is present (generate if missing)
+        if not conversation_id:
+            import uuid
+            conversation_id = str(uuid.uuid4())
         
         if not message:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, 
@@ -627,7 +615,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 message=special_response_text,
                 timestamp=datetime.now().isoformat(),
                 personality=personality, # Use the personality from the original request
-                conversation_id=conversation_id # Pass the conversation_id from the request
+                conversation_id=conversation_id # Always return a valid conversation_id
             )
         
         # Get user ID and profile ID
@@ -687,7 +675,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         }.get(personality, personality.capitalize() + " Bhai")
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
         # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
-        # Only insert the Swag Bhai intro if this is the first message in the conversation, or the user greets.
+        # Insert the Swag Bhai intro only at the start of a new conversation.
         persona_intro = (
             "You are Swag Bhai, the coolest, trendiest, and most modern Indian bro, created by Syed Farooq. "
             "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
@@ -707,7 +695,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         )
         # Insert persona intro only if this is the first message in the conversation, or if user greets
         insert_intro = False
-        if not chat_history or is_greeting:
+        if not chat_history:
             insert_intro = True
         if insert_intro:
             if not personality_context or not isinstance(personality_context, list):
@@ -715,15 +703,15 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             if not any(msg.get('content') == persona_intro for msg in personality_context if isinstance(msg, dict)):
                 personality_context.insert(0, {"role": "system", "content": persona_intro})
         # --- END SYSTEM PROMPT REWRITE ---
-
-        # --- GREETING-ONLY CONTEXT HANDLING ---
-        user_message_lower = message.strip().lower() if isinstance(message, str) else ""
-        is_greeting = user_message_lower in GREETING_KEYWORDS
-        is_chitchat = any(phrase in user_message_lower for phrase in GENERIC_CHITCHAT_KEYWORDS)
-        is_followup = any(phrase in user_message_lower for phrase in FOLLOWUP_KEYWORDS)
         messages = []
-        if is_greeting or is_chitchat:
-            # Only send system/personality context and the current user message
+        if personality_context and isinstance(personality_context, list):
+            for msg in personality_context:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                    messages.append({
+                        "role": msg['role'],
+                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                    })
+        messages.append({"role": "user", "content": message})
             if personality_context and isinstance(personality_context, list):
                 for msg in personality_context:
                     if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
@@ -824,6 +812,11 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         if not response:
             response = "Sorry, the AI could not generate a response."
 
+        # Defensive: Guarantee conversation_id is never None in the response
+        if not conversation_id:
+            import uuid
+            conversation_id = str(uuid.uuid4())
+
         # --- Memory-aware response patch ---
         if (
             isinstance(response, str) and
@@ -850,19 +843,35 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
+        # Always return a valid conversation_id in error response if possible
+        if 'conversation_id' in locals() and conversation_id:
+            return ChatResponse(
+                message=str(he.detail),
+                timestamp=datetime.now().isoformat(),
+                personality=data.get("personality", "swag") if 'data' in locals() else "swag",
+                conversation_id=conversation_id
+            )
         raise
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON in request body"
+        # Defensive: Return a response with a generated conversation_id
+        import uuid
+        return ChatResponse(
+            message="Invalid JSON in request body",
+            timestamp=datetime.now().isoformat(),
+            personality="swag",
+            conversation_id=str(uuid.uuid4())
         )
     except Exception as e:
         logger.error(f"Unexpected error in chat endpoint: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred"
+        # Defensive: Return a response with a generated conversation_id
+        import uuid
+        return ChatResponse(
+            message="An unexpected error occurred",
+            timestamp=datetime.now().isoformat(),
+            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
+            conversation_id=conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
         )
 
 @app.put("/conversations/{conversation_id}")
