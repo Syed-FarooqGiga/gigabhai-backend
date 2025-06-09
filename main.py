@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Body, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import uuid  # Added for generating unique IDs
+import logging # Added for logging
 from pydantic import BaseModel
 from firebase_admin import auth, firestore
 from firebase_admin.exceptions import FirebaseError
@@ -992,15 +994,18 @@ from fastapi.responses import JSONResponse
 from fastapi import status as fastapi_status
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request, exc):
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Request validation error: {exc.errors()}")
     # Always return a valid conversation_id, even on validation errors
     return JSONResponse(
         status_code=fastapi_status.HTTP_400_BAD_REQUEST,
         content=ChatResponse(
-            message="Invalid request.",
+            message="Invalid request. Please check the data you sent.",
             timestamp=datetime.now().isoformat(),
-            personality="swag",
-            conversation_id=str(uuid.uuid4())
+            personality="swag",  # Default personality for validation errors
+            conversation_id=str(uuid.uuid4()) # Generate a new UUID
+        ).model_dump() # Use .model_dump() for FastAPI < 0.95.0, or .dict() if appropriate
+    )
         ).dict()
     )
 
