@@ -47,17 +47,20 @@ async def get_mistral_response(messages: list):
                 import logging
                 logging.getLogger("mistral_handler").error(f"Mistral API error {response.status_code}: {error_msg}")
                 return f"Error from Mistral API: {error_msg}"
-            # Parse successful response
+            # Parse successful response and extract only the assistant's message
             response_json = response.json()
-            if 'choices' not in response_json or not response_json['choices']:
-                return "Invalid response from Mistral API"
-            return response_json["choices"][0]["message"]["content"]
-        except httpx.ReadTimeout:
+            # Ensure we return a clean response format
+            if 'choices' in response_json and len(response_json['choices']) > 0:
+                # Extract the message content from the first choice
+                message = response_json['choices'][0].get('message', {})
+                # Return just the content if it's an assistant message
+                if message.get('role') == 'assistant':
+                    return message.get('content', '')
+                return message.get('content', '') if message else ''
+            return ""
+        except asyncio.TimeoutError:
             return "Sorry, the AI is taking too long to respond. Please try again later."
         except Exception as e:
-            if attempt < max_retries - 1 and (time.monotonic() - start_time + delay) < max_total_time:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, max_total_time - (time.monotonic() - start_time))
-                continue
-            return f"Error communicating with Mistral API: {str(e)}"
+            logger.error(f"Error in get_mistral_response: {str(e)}", exc_info=True)
+            return "Sorry, the AI is taking too long to respond. Please try again later."
     return "Sorry, the AI is taking too long to respond. Please try again later."
