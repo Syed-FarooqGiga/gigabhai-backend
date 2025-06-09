@@ -677,11 +677,11 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
 
                 
                 # Also add this information to the system prompt for future context
-                if personality_context and isinstance(personality_context, list):
-                    # Add a system message about the creator if not already present
-                    creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
-                    if creator_message not in personality_context:
-                        personality_context.insert(0, creator_message)
+        if personality_context and isinstance(personality_context, list):
+            # Add a system message about the creator if not already present
+            creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
+            if creator_message not in personality_context:
+                personality_context.insert(0, creator_message)
             else:
                 try:
                     # Format messages for Mistral API
@@ -924,4 +924,4 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
