@@ -673,39 +673,6 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         }.get(personality, personality.capitalize() + " Bhai")
 chat_history = []
 fallback_used = False
-if conversation_id:
-try:
-from firebase_memory_manager import get_compressed_memory, get_chat_messages
-# Only ever fetch memory/history for the current conversation_id
-compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
-if compressed_memory and isinstance(compressed_memory, list) and len(compressed_memory) > 0:
-chat_history = compressed_memory
-else:
-# Fallback: Fetch up to 100 previous messages for this conversation only
-chat_history = await get_chat_messages(
-chat_id=conversation_id,
-user_id=user_id,
-profile_id=profile_id,
-limit=100
-)
-chat_history.reverse()
-# Format fallback as role/content pairs
-formatted_fallback = []
-for msg in chat_history:
-if msg.get('message'):
-formatted_fallback.append({"role": "user", "content": msg['message']})
-if msg.get('response'):
-formatted_fallback.append({"role": "assistant", "content": msg['response']})
-chat_history = formatted_fallback[-20:]  # fallback to last 20 messages
-fallback_used = True
-except Exception as e:
-logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
-chat_history = []
-fallback_used = True
-else:
-# No conversation_id (new conversation): DO NOT fetch any history or summary
-chat_history = []
-fallback_used = False
     
 # Defensive: Never allow chat_history to contain data from any other conversation
 # This is already enforced by scoping all fetches by conversation_id above.
