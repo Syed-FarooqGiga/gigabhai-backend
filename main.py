@@ -818,36 +818,51 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
-        # Always return a valid conversation_id in error response if possible
-        import uuid
-        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+        # Safely determine conversation_id and personality for the error response
+        _conversation_id_for_error = str(uuid.uuid4()) # Default to new UUID
+        if 'conversation_id' in locals() and locals().get('conversation_id'):
+            _conversation_id_for_error = locals().get('conversation_id')
+        
+        _personality_for_error = "swag" # Default personality
+        if 'personality' in locals() and locals().get('personality'):
+            _personality_for_error = locals().get('personality')
+        elif 'data' in locals() and isinstance(locals().get('data'), dict) and locals().get('data').get('personality'):
+             _personality_for_error = locals().get('data').get('personality')
+
         return ChatResponse(
             message=str(he.detail),
             timestamp=datetime.now().isoformat(),
-            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
-            conversation_id=cid
+            personality=_personality_for_error,
+            conversation_id=_conversation_id_for_error
         )
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
-        # Defensive: Return a response with a generated conversation_id
-        import uuid
         return ChatResponse(
-            message="Invalid JSON in request body",
+            message="Invalid JSON in request body. Please check your request format.",
             timestamp=datetime.now().isoformat(),
-            personality="swag",
-            conversation_id=str(uuid.uuid4())
+            personality="swag", # Default personality
+            conversation_id=str(uuid.uuid4()) # Always generate a new UUID here
         )
     except Exception as e:
         logger.error(f"Unexpected error in chat endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         # Defensive: Return a response with a generated conversation_id
-        import uuid
-        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+        
+        _conversation_id_for_error = str(uuid.uuid4()) # Default to new UUID
+        if 'conversation_id' in locals() and locals().get('conversation_id'):
+            _conversation_id_for_error = locals().get('conversation_id')
+            
+        _personality_for_error = "swag" # Default personality
+        if 'personality' in locals() and locals().get('personality'):
+            _personality_for_error = locals().get('personality')
+        elif 'data' in locals() and isinstance(locals().get('data'), dict) and locals().get('data').get('personality'):
+             _personality_for_error = locals().get('data').get('personality')
+
         return ChatResponse(
-            message="An unexpected error occurred",
+            message="An unexpected error occurred. Please try again.",
             timestamp=datetime.now().isoformat(),
-            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
-            conversation_id=cid
+            personality=_personality_for_error,
+            conversation_id=_conversation_id_for_error
         )
 
 @app.put("/conversations/{conversation_id}")
