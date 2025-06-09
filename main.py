@@ -712,23 +712,6 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                         "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                     })
         messages.append({"role": "user", "content": message})
-            if personality_context and isinstance(personality_context, list):
-                for msg in personality_context:
-                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                        messages.append({
-                            "role": msg['role'],
-                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                        })
-            messages.append({"role": "user", "content": message})
-        elif is_followup:
-            # If there is any chat history summary or old messages, prepend a special system instruction
-            if chat_history:
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        "These are the old messages from this conversation. Use them ONLY if necessary to answer the user's current message. Focus your reply on the current message."
-                    )
-                })
             # Add chat history (already limited to last 8)
             for msg in chat_history:
                 messages.append(msg)
