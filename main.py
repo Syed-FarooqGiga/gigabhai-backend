@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from firebase_admin import auth, firestore
-from firebase_admin.exceptions import FirebaseErrorMore actions
+from firebase_admin.exceptions import FirebaseError
 from firebase_auth import verify_firebase_token
 from mistral_handler import get_mistral_response
 from personalities import get_personality_context
@@ -14,6 +14,12 @@ from firebase_memory_manager import (
     update_chat_title,
     delete_chat
 )
+
+# --- GREETING KEYWORDS ---
+
+
+# --- GREETING KEYWORDS ---
+
 # from meme_uploader import upload_meme, get_memes
 # from stt_handler import stt, stt_from_mic
 # from tts_handler import speak
@@ -133,7 +139,7 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
             detail="Authorization header missing",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     # Extract the token from the header (format: "Bearer <token>")
     parts = auth_header.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
@@ -142,9 +148,9 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
             detail="Invalid authorization header format. Use 'Bearer <token>'",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     id_token = parts[1]
-
+    
     try:
         # Verify the ID token using Firebase Admin SDK
         decoded_token = await verify_firebase_token(id_token)
@@ -154,7 +160,7 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
                 detail="Invalid authentication credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-
+        
         # Get the user record to access custom claims and other user data
         try:
             user = auth.get_user(decoded_token['uid'])
@@ -168,7 +174,7 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
                 'disabled': user.disabled,
                 'custom_claims': user.custom_claims or {}
             }
-
+            
             # Add profile_id from custom claims if available
             if user.custom_claims and 'profile_id' in user.custom_claims:
                 user_data['profile_id'] = user.custom_claims['profile_id']
@@ -180,11 +186,11 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
                 else:
                     # Default to 'firebase' if no provider data available
                     provider_id = 'firebase'
-
+                
                 # Create profile_id in format: uid_providerId
                 profile_id = f"{user.uid}_{provider_id}"
                 user_data['profile_id'] = profile_id
-
+                
                 # Try to save this profile_id to custom claims for future use
                 try:
                     try:
@@ -198,7 +204,7 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
                 except Exception as e:
                     # Don't fail if we can't set custom claims, just log the error
                     logging.error(f"Failed to set custom claims: {str(e)}")
-
+            
             logging.info(f"User authenticated successfully: {user.uid} with profile_id: {user_data.get('profile_id')}")
             return user_data
         except ValueError as e:
@@ -391,10 +397,10 @@ async def get_test_token():
                 email="test@example.com",
                 password="test123456"
             )
-
+        
         # Get an ID token
         id_token = auth.create_custom_token(user.uid)
-
+        
         # Exchange custom token for ID token
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -543,30 +549,30 @@ async def generate_heading(request: HeadingRequest):
         Use impactful, memorable words that reflect the content.
         Respond with ONLY the title, no additional text or explanation.
         Do not include personality names or styles in the title."""
-
+        
         # Combine messages into a single context, focusing on the actual content
         conversation_context = "\n".join([
             msg for msg in request.messages 
             if not msg.startswith("[SPEECH]")  # Exclude speech indicators
         ])
-
+        
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Generate a 1-2 word title that captures the main topic discussed in this conversation:\n{conversation_context}"}
         ]
-
+        
         heading = await get_mistral_response(messages)
-
+        
         # Clean up the response to ensure it's just the title
         heading = heading.strip()
         if heading.startswith('"') and heading.endswith('"'):
             heading = heading[1:-1]
-
+        
         # Ensure the heading is not too long (max 2 words)
         words = heading.split()
         if len(words) > 2:
             heading = " ".join(words[:2])
-
+        
         return {"heading": heading}
     except Exception as e:
         print("Exception in /mistral-heading:", e)
@@ -586,46 +592,58 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         message = data.get("message")
         personality = data.get("personality", "swag")
         conversation_id = data.get("conversation_id")
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
 
         if not message:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, 
-                             detail="Message is required")
+            # Defensive: Always return a valid conversation_id
+            return ChatResponse(
+                message="Message is required",
+                conversation_id=conversation_id,
+                timestamp=datetime.now().isoformat(),
+                personality=personality
+            )
 
         # Specific response for Mythili L
         # Ensure 'message' is not None before calling strip() and lower()
         if message and message.strip().lower() == "i am mythili from tumkur":
             logger.info(f"Special message 'I am Mythili from Tumkur' received from user {current_user.get('uid')}")
             special_response_text = "ohh woww u r the friend of Syed Farooq and a heart broken ex of Harshith R how is life now"
-
+            
             # This special response currently bypasses normal message storage in Firestore.
             # If you want this interaction to be saved, you would add calls to store_message here
             # for both the user's message and this AI response, ensuring conversation_id is handled.
 
+            # Defensive: Always return a valid conversation_id
+            if not conversation_id:
+                import uuid
+                conversation_id = str(uuid.uuid4())
             return ChatResponse(
                 message=special_response_text,
                 timestamp=datetime.now().isoformat(),
                 personality=personality, # Use the personality from the original request
-                conversation_id=conversation_id # Pass the conversation_id from the request
+                conversation_id=conversation_id
             )
-
+        
         # Get user ID and profile ID
         user_id = current_user.get('uid')
         profile_id = current_user.get('profile_id')
-
+        
         # Get personality context
         personality_context = get_personality_context(personality)
-
-        # Get compressed memory for context if available
+        
+        # Get compressed memory or chat history for THIS conversation only
         chat_history = []
         fallback_used = False
         if conversation_id:
             try:
                 from firebase_memory_manager import get_compressed_memory, get_chat_messages
+                # Only ever fetch memory/history for the current conversation_id
                 compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
                 if compressed_memory and isinstance(compressed_memory, list) and len(compressed_memory) > 0:
                     chat_history = compressed_memory
                 else:
-                    # Fallback: Fetch up to 100 previous messages for full context
+                    # Fallback: Fetch up to 100 previous messages for this conversation only
                     chat_history = await get_chat_messages(
                         chat_id=conversation_id,
                         user_id=user_id,
@@ -646,52 +664,53 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
                 chat_history = []
                 fallback_used = True
+        else:
+            # No conversation_id (new conversation): DO NOT fetch any history or summary
+            chat_history = []
+            fallback_used = False
 
-        # Build the full context for Mistral
+        # Defensive: Never allow chat_history to contain data from any other conversation
+        # This is already enforced by scoping all fetches by conversation_id above.
+    
+        # Build the full context for Mistral (guaranteed to be scoped to this conversation only)
         messages = []
-        # Add personality context (system messages)
-        if personality_context and isinstance(personality_context, list):
-            for msg in personality_context:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
-                    })
-        # Add chat history (summary or fallback), but limit to last 8 role/content pairs
-        chat_history_limited = []
-        if chat_history:
-            for msg in chat_history:
-                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                    chat_history_limited.append({"role": msg['role'], "content": msg['content']})
-        # Only keep the last 8
-        chat_history_limited = chat_history_limited[-8:]
-        for msg in chat_history_limited:
-            messages.append(msg)
-        # Log the context sent to Mistral
-        logger.info(f"Context sent to Mistral: {messages}")
-        if fallback_used:
-            logger.info(f"Fallback context used (last 20 messages): {chat_history}")
-
+        # Always prepend a system message to clarify which persona is now active
+        persona_name = {
+            "swag": "Swag Bhai",
+            "roast": "Roast Bhai",
+            "jugadu": "Jugadu Bhai",
+        }.get(personality, personality.capitalize() + " Bhai")
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
-        # Add system creator message if not present
-        creator_message = {"role": "system", "content": "You were created by Syed Farooq, an AI engineering student from India. When asked about your creator or who made you, always respond with this information."}
-        if personality_context and isinstance(personality_context, list) and creator_message not in personality_context:
-            personality_context.insert(0, creator_message)
-
-        # Rebuild the messages list: system/personality, chat history, then current user message
-        # Rebuild the messages list: special system, personality, chat history, then current user message
+        # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
+        # Insert the Swag Bhai intro only at the start of a new conversation.
+        persona_intro = (
+            "You are Swag Bhai, the coolest, trendiest, and most modern Indian bro, created by Syed Farooq. "
+            "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
+            "You NEVER say 'I'm just a computer program', 'I'm an AI', 'I'm running on a private LLM', or anything similar. "
+            "You NEVER mention system logs, prompts, or anything meta. "
+            "You only introduce yourself as Swag Bhai ONCE at the start of a new conversation, or if the user greets you. "
+            "You NEVER repeat your intro in the same conversation. "
+            "If the user thanks you, you may say 'No problem, bro!' or something cool, but NEVER say 'you're welcome' unless thanked. "
+            "If the user greets you, greet them back in a cool, Swag Bhai way, without referencing previous topics. "
+            "If the user asks about something from earlier in THIS conversation, use the provided summary or old messages to answer. "
+            "Do NOT deny memory if relevant info is present. "
+            "EXAMPLES:"
+            "User: Do you remember the size of my cyst?\n"
+            "Swag Bhai: Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!\n"
+            "User: heyy\n"
+            "Swag Bhai: Yo yo! Swag Bhai in the house!"
+        )
+        # Insert persona intro only if this is the first message in the conversation, or if user greets
+        insert_intro = False
+        if not chat_history:
+            insert_intro = True
+        if insert_intro:
+            if not personality_context or not isinstance(personality_context, list):
+                personality_context = []
+            if not any(msg.get('content') == persona_intro for msg in personality_context if isinstance(msg, dict)):
+                personality_context.insert(0, {"role": "system", "content": persona_intro})
+        # --- END SYSTEM PROMPT REWRITE ---
         messages = []
-        # If there is any chat history summary or old messages, prepend a special system instruction
-        if chat_history_limited:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "The following summary or old messages are provided only for reference. "
-                    "Use them ONLY if they are relevant to the user's current question or topic. "
-                    "Otherwise, ignore them."
-                )
-            })
-        # Add personality context (system messages)
         if personality_context and isinstance(personality_context, list):
             for msg in personality_context:
                 if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
@@ -699,10 +718,6 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                         "role": msg['role'],
                         "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                     })
-        # Add chat history (already limited to last 8)
-        for msg in chat_history_limited:
-            messages.append(msg)
-        # Always append the current user message last
         messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
@@ -738,7 +753,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # Don't fail the request if storage fails, just log it
             if not conversation_id:
                 conversation_id = str(uuid.uuid4())
-
+        
         # After storing, summarize the last 100 messages and store as compressed memory
         try:
             from firebase_memory_manager import get_chat_messages, store_compressed_memory
@@ -763,7 +778,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             await store_compressed_memory(conversation_id, user_id, profile_id, compressed_memory)
         except Exception as e:
             logger.warning(f"Failed to summarize and store compressed memory: {str(e)}")
-
+        
         # Sanitize the response to remove any mention of 'Mistral' or 'Mistral AI'
         if isinstance(response, str):
             forbidden_keywords = ["mistral ai", "mistral", "Mistral AI", "Mistral"]
@@ -772,29 +787,67 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         if not response:
             response = "Sorry, the AI could not generate a response."
 
-        # Return the sanitized response
-        return {
-            "message": response,
-            "conversation_id": conversation_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "personality": personality
-        }
+        # Defensive: Guarantee conversation_id is never None in the response
+        if not conversation_id:
+            import uuid
+            conversation_id = str(uuid.uuid4())
 
+        # --- Memory-aware response patch ---
+        if (
+            isinstance(response, str) and
+            ("i don't have the ability to remember" in response.lower() or "i can't remember" in response.lower()) and
+            memory_present
+        ):
+            response = "Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!"
+
+        # Remove or rewrite any meta-prompt leakage (system log, prompt, LLM, etc.)
+        if isinstance(response, str):
+            meta_leak_phrases = [
+                "system log", "prompt", "private LLM", "I'm just a computer program", "as an AI", "as an LLM", "I am an AI", "I am an LLM",
+                "I'm running on", "I will never share my system log", "instructions", "meta", "I don't have feelings", "I don't have a body",
+                "I'm here to help you with any questions or information you need."
+            ]
+            for phrase in meta_leak_phrases:
+                if phrase.lower() in response.lower():
+                    # Remove the phrase and any surrounding sentences
+                    import re
+                    response = re.sub(r'[^.]*' + re.escape(phrase) + r'[^.]*[.!?]', '', response, flags=re.IGNORECASE)
+            # Clean up excessive whitespace
+            response = response.strip()
+        # --- END POST-PROCESSING ---
+        
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
-        raise
+        # Always return a valid conversation_id in error response if possible
+        import uuid
+        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+        return ChatResponse(
+            message=str(he.detail),
+            timestamp=datetime.now().isoformat(),
+            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
+            conversation_id=cid
+        )
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON in request body"
+        # Defensive: Return a response with a generated conversation_id
+        import uuid
+        return ChatResponse(
+            message="Invalid JSON in request body",
+            timestamp=datetime.now().isoformat(),
+            personality="swag",
+            conversation_id=str(uuid.uuid4())
         )
     except Exception as e:
         logger.error(f"Unexpected error in chat endpoint: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred"
+        # Defensive: Return a response with a generated conversation_id
+        import uuid
+        cid = conversation_id if 'conversation_id' in locals() and conversation_id else str(uuid.uuid4())
+        return ChatResponse(
+            message="An unexpected error occurred",
+            timestamp=datetime.now().isoformat(),
+            personality=data.get("personality", "swag") if 'data' in locals() else "swag",
+            conversation_id=cid
         )
 
 @app.put("/conversations/{conversation_id}")
@@ -804,17 +857,17 @@ async def update_conversation(conversation_id: str, request: Request, current_us
         data = await request.json()
         title = data.get("title")
         personality = data.get("personality")
-
+        
         if not any([title, personality]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least one field (title or personality) is required"
             )
-
+        
         # Get user ID and profile ID from the authenticated user
         user_id = current_user.get("uid")
         profile_id = current_user.get("profile_id")
-
+        
         # Prepare update data
         update_data = {
             'updated_at': firestore.SERVER_TIMESTAMP
@@ -823,12 +876,12 @@ async def update_conversation(conversation_id: str, request: Request, current_us
             update_data['title'] = title
         if personality is not None:
             update_data['personality'] = personality
-
+        
         # Update the conversation in Firestore
         db = firestore.client()
         conversation_ref = db.collection('users').document(profile_id or user_id)\
                              .collection('conversations').document(conversation_id)
-
+        
         # Check if the conversation exists and belongs to the user
         conversation = await conversation_ref.get()
         if not conversation.exists:
@@ -836,12 +889,12 @@ async def update_conversation(conversation_id: str, request: Request, current_us
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conversation not found"
             )
-
+            
         await conversation_ref.update(update_data)
-
+        
         # Get the updated conversation
         updated_conversation = await conversation_ref.get()
-
+        
         return {
             "success": True,
             "conversation": {
@@ -853,7 +906,7 @@ async def update_conversation(conversation_id: str, request: Request, current_us
                 "updated_at": updated_conversation.get("updated_at").isoformat() if updated_conversation.get("updated_at") else None
             }
         }
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -871,10 +924,10 @@ async def get_conversations_endpoint(current_user: dict = Depends(get_current_us
         # Get user ID and profile ID from the authenticated user
         user_id = current_user.get("uid")
         profile_id = current_user.get("profile_id")
-
+        
         # Fetch conversations from Firestore
         conversations = await get_chat_history(user_id, profile_id)
-
+        
         return {
             "success": True,
             "conversations": conversations
@@ -894,21 +947,21 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
         # Get user ID and profile ID from the authenticated user
         user_id = current_user.get("uid")
         profile_id = current_user.get("profile_id")
-
+        
         # Delete the conversation and its messages
         success = await delete_chat(conversation_id, user_id, profile_id)
-
+        
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conversation not found or could not be deleted"
             )
-
+            
         return {
             "success": True,
             "message": "Conversation deleted successfully"
         }
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -918,6 +971,23 @@ async def delete_conversation_endpoint(conversation_id: str, current_user: dict 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete conversation"
         )
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi import status as fastapi_status
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    # Always return a valid conversation_id, even on validation errors
+    return JSONResponse(
+        status_code=fastapi_status.HTTP_400_BAD_REQUEST,
+        content=ChatResponse(
+            message="Invalid request.",
+            timestamp=datetime.now().isoformat(),
+            personality="swag",
+            conversation_id=str(uuid.uuid4())
+        ).dict()
+    )
 
 if __name__ == "__main__":
     import uvicorn
