@@ -660,21 +660,17 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             chat_history = []
             fallback_used = False
 
-return ChatResponse(
-message=special_response_text,
-timestamp=datetime.now().isoformat(),
-personality=personality, # Use the personality from the original request
-conversation_id=conversation_id # Pass the conversation_id from the request
-)
+        # Defensive: Never allow chat_history to contain data from any other conversation
+        # This is already enforced by scoping all fetches by conversation_id above.
     
-# Get user ID and profile ID
-user_id = current_user.get('uid')
-profile_id = current_user.get('profile_id')
-    
-# Get personality context
-personality_context = get_personality_context(personality)
-    
-# Get compressed memory or chat history for THIS conversation only
+        # Build the full context for Mistral (guaranteed to be scoped to this conversation only)
+        messages = []
+        # Always prepend a system message to clarify which persona is now active
+        persona_name = {
+            "swag": "Swag Bhai",
+            "roast": "Roast Bhai",
+            "jugadu": "Jugadu Bhai",
+        }.get(personality, personality.capitalize() + " Bhai")
 chat_history = []
 fallback_used = False
 if conversation_id:
