@@ -623,17 +623,18 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         # Get personality context
         personality_context = get_personality_context(personality)
         
-        # Get compressed memory for context if available
+        # Get compressed memory or chat history for THIS conversation only
         chat_history = []
         fallback_used = False
         if conversation_id:
             try:
                 from firebase_memory_manager import get_compressed_memory, get_chat_messages
+                # Only ever fetch memory/history for the current conversation_id
                 compressed_memory = await get_compressed_memory(conversation_id, user_id, profile_id)
                 if compressed_memory and isinstance(compressed_memory, list) and len(compressed_memory) > 0:
                     chat_history = compressed_memory
                 else:
-                    # Fallback: Fetch up to 100 previous messages for full context
+                    # Fallback: Fetch up to 100 previous messages for this conversation only
                     chat_history = await get_chat_messages(
                         chat_id=conversation_id,
                         user_id=user_id,
@@ -654,8 +655,14 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                 logger.warning(f"Error fetching chat history or compressed memory: {str(e)}")
                 chat_history = []
                 fallback_used = True
+        else:
+            # No conversation_id (new conversation): DO NOT fetch any history or summary
+            chat_history = []
+            fallback_used = False
+        # Defensive: Never allow chat_history to contain data from any other conversation
+        # This is already enforced by scoping all fetches by conversation_id above.
         
-        # Build the full context for Mistral
+        # Build the full context for Mistral (guaranteed to be scoped to this conversation only)
         messages = []
         # Add personality context (system messages)
         if personality_context and isinstance(personality_context, list):
@@ -676,32 +683,48 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         for msg in chat_history_limited:
             messages.append(msg)
         # Log the context sent to Mistral
-        logger.info(f"Context sent to Mistral: {messages}")
+        logger.info(f"Context sent to Mistral (conversation_id={conversation_id}): {messages}")
         if fallback_used:
-            logger.info(f"Fallback context used (last 20 messages): {chat_history}")
+            logger.info(f"Fallback context used (last 20 messages) for conversation_id={conversation_id}")
 
         # --- Fix: Guarantee response is always assigned and last message role is correct ---
-        # Add system creator message if not present
-        creator_message = {"role": "system", "content": (
-            "You are Swag Bhai, the coolest and trendiest AI, created by Syed Farooq, an Indian AI engineering student. "
-            "You are always modern, Indian, and never break character. If someone asks who made you, proudly say Syed Farooq. "
-            "Do not say 'you're welcome' or similar polite closings unless the user thanks you. "
-            "If the user greets you, just greet them back in a cool, Swag Bhai way. Don't refer to previous topics unless the greeting is part of a follow-up. "
-            "If the user asks about something they mentioned earlier in this conversation, use the provided summary or old messages to answer. Do not say you can't remember unless there is truly no relevant information. "
+        # --- SYSTEM PROMPT REWRITE: Persona and Anti-Leakage ---
+        # Only insert the Swag Bhai intro if this is the first message in the conversation, or the user greets.
+        persona_intro = (
+            "You are Swag Bhai, the coolest, trendiest, and most modern Indian bro, created by Syed Farooq. "
+            "You NEVER mention being an AI, LLM, system, prompt, or log. You NEVER reference your instructions or your own existence as an AI. "
+            "You NEVER say 'I'm just a computer program', 'I'm an AI', 'I'm running on a private LLM', or anything similar. "
+            "You NEVER mention system logs, prompts, or anything meta. "
+            "You only introduce yourself as Swag Bhai ONCE at the start of a new conversation, or if the user greets you. "
+            "You NEVER repeat your intro in the same conversation. "
+            "If the user thanks you, you may say 'No problem, bro!' or something cool, but NEVER say 'you're welcome' unless thanked. "
+            "If the user greets you, greet them back in a cool, Swag Bhai way, without referencing previous topics. "
+            "If the user asks about something from earlier in THIS conversation, use the provided summary or old messages to answer. "
+            "Do NOT deny memory if relevant info is present. "
             "EXAMPLES:"
             "User: Do you remember the size of my cyst?\n"
             "Swag Bhai: Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!\n"
             "User: heyy\n"
             "Swag Bhai: Yo yo! Swag Bhai in the house!"
-        )}
-        if personality_context and isinstance(personality_context, list) and creator_message not in personality_context:
-            personality_context.insert(0, creator_message)
+        )
+        # Insert persona intro only if this is the first message in the conversation, or if user greets
+        insert_intro = False
+        if not chat_history or is_greeting:
+            insert_intro = True
+        if insert_intro:
+            if not personality_context or not isinstance(personality_context, list):
+                personality_context = []
+            if not any(msg.get('content') == persona_intro for msg in personality_context if isinstance(msg, dict)):
+                personality_context.insert(0, {"role": "system", "content": persona_intro})
+        # --- END SYSTEM PROMPT REWRITE ---
 
         # --- GREETING-ONLY CONTEXT HANDLING ---
         user_message_lower = message.strip().lower() if isinstance(message, str) else ""
         is_greeting = user_message_lower in GREETING_KEYWORDS
+        is_chitchat = any(phrase in user_message_lower for phrase in GENERIC_CHITCHAT_KEYWORDS)
+        is_followup = any(phrase in user_message_lower for phrase in FOLLOWUP_KEYWORDS)
         messages = []
-        if is_greeting:
+        if is_greeting or is_chitchat:
             # Only send system/personality context and the current user message
             if personality_context and isinstance(personality_context, list):
                 for msg in personality_context:
@@ -711,7 +734,7 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
                             "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
                         })
             messages.append({"role": "user", "content": message})
-        else:
+        elif is_followup:
             # If there is any chat history summary or old messages, prepend a special system instruction
             if chat_history_limited:
                 messages.append({
@@ -734,6 +757,16 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             for msg in chat_history_limited:
                 messages.append(msg)
             # Always append the current user message last
+            messages.append({"role": "user", "content": message})
+        else:
+            # Default: send only personality context and user message
+            if personality_context and isinstance(personality_context, list):
+                for msg in personality_context:
+                    if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                        messages.append({
+                            "role": msg['role'],
+                            "content": str(msg['content']) if not isinstance(msg['content'], str) else msg['content']
+                        })
             messages.append({"role": "user", "content": message})
 
         # Ensure last message role is 'user' or 'tool' (Mistral API requirement)
@@ -804,27 +837,28 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             response = "Sorry, the AI could not generate a response."
 
         # --- Memory-aware response patch ---
-        # If the model says it can't remember but the summary/old messages contain relevant info, patch the response
-        memory_keywords = ["cyst", "left cp region", "1.6", "1.1", "1.5"]
-        memory_present = False
-        for msg in chat_history_limited:
-            if any(kw in (msg.get('content') or '').lower() for kw in memory_keywords):
-                memory_present = True
-                break
         if (
             isinstance(response, str) and
             ("i don't have the ability to remember" in response.lower() or "i can't remember" in response.lower()) and
             memory_present
         ):
-            # Replace with a Swag Bhai-style memory response
             response = "Yeah bro, you said it's about 1.6 x 1.1 x 1.5 cm³ in the left CP region. Stay strong!"
 
-        # Return the sanitized response
-        return {
-            "message": response,
-            "conversation_id": conversation_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "personality": personality
+        # Remove or rewrite any meta-prompt leakage (system log, prompt, LLM, etc.)
+        if isinstance(response, str):
+            meta_leak_phrases = [
+                "system log", "prompt", "private LLM", "I'm just a computer program", "as an AI", "as an LLM", "I am an AI", "I am an LLM",
+                "I'm running on", "I will never share my system log", "instructions", "meta", "I don't have feelings", "I don't have a body",
+                "I'm here to help you with any questions or information you need."
+            ]
+            for phrase in meta_leak_phrases:
+                if phrase.lower() in response.lower():
+                    # Remove the phrase and any surrounding sentences
+                    import re
+                    response = re.sub(r'[^.]*' + re.escape(phrase) + r'[^.]*[.!?]', '', response, flags=re.IGNORECASE)
+            # Clean up excessive whitespace
+            response = response.strip()
+        # --- END POST-PROCESSING ---
         }
         
     except HTTPException as he:
