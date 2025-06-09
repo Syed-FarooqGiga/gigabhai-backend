@@ -15,24 +15,37 @@ async def get_mistral_response(messages: list):
                 'content': str(msg['content']).strip()
             })
     payload = {
-        "model": "mistral-medium",
+        "model": "mistral-small",  # Changed to a faster model
         "messages": optimized_messages
     }
-    max_retries = 5
-    delay = 1  # seconds
+    import time
+    max_retries = 3
+    delay = 0.5  # seconds
+    max_total_time = 25.0  # seconds
+    start_time = time.monotonic()
+    import logging
+    logger = logging.getLogger("mistral_handler")
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # If we've spent too long, abort
+            if time.monotonic() - start_time > max_total_time:
+                return "Sorry, the AI is taking too long to respond. Please try again later."
+            call_start = time.monotonic()
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(MISTRAL_API_URL, headers=headers, json=payload)
+            call_duration = time.monotonic() - call_start
+            logger.info(f"Mistral API call took {call_duration:.2f} seconds (attempt {attempt+1})")
                 # Check for error responses
                 if response.status_code == 429:
-                    if attempt < max_retries - 1:
+                    if attempt < max_retries - 1 and (time.monotonic() - start_time + delay) < max_total_time:
                         await asyncio.sleep(delay)
-                        delay *= 2  # exponential backoff
+                        delay = min(delay * 2, max_total_time - (time.monotonic() - start_time))
                         continue
                     return "Rate limit exceeded. Please try again in a few seconds."
                 elif response.status_code != 200:
-                    error_msg = response.json().get('error', {}).get('message', 'Unknown error occurred')
+                    error_msg = response.text
+                    import logging
+                    logging.getLogger("mistral_handler").error(f"Mistral API error {response.status_code}: {error_msg}")
                     return f"Error from Mistral API: {error_msg}"
                 # Parse successful response
                 response_json = response.json()
@@ -42,9 +55,9 @@ async def get_mistral_response(messages: list):
         except httpx.ReadTimeout:
             return "Sorry, the AI is taking too long to respond. Please try again later."
         except Exception as e:
-            if attempt < max_retries - 1:
+            if attempt < max_retries - 1 and (time.monotonic() - start_time + delay) < max_total_time:
                 await asyncio.sleep(delay)
-                delay *= 2
+                delay = min(delay * 2, max_total_time - (time.monotonic() - start_time))
                 continue
             return f"Error communicating with Mistral API: {str(e)}"
-    return f"An error occurred while processing your request: Unknown error"
+    return "Sorry, the AI is taking too long to respond. Please try again later."
