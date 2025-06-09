@@ -13,8 +13,9 @@ async def summarize_chat_memory(messages: list) -> list:
         "content": (
             "You are a helpful assistant. The following is a conversation history. "
             "Select the 10 most important messages (user or assistant) that best capture the context, "
-            "and summarize or compress them if possible. Return the result as a list of message objects in JSON, "
-            "each with a 'role' (user or assistant) and 'content'. Do not include any explanations. "
+            "and summarize or compress them if possible. ALWAYS include any key facts, numbers, measurements, medical details, symptoms, diagnoses, or user questions. "
+            "NEVER omit any numbers, measurements, or important details about the user's health, medical conditions, or personal facts, and every important detail which can be used to answer the user's questions "
+            "Return the result as a list of message objects in JSON, each with a 'role' (user or assistant) and 'content'. Do not include any explanations. "
             "If you can merge similar messages, do so."
         )
     }
@@ -27,17 +28,21 @@ async def summarize_chat_memory(messages: list) -> list:
     summarization_input = [summarization_prompt] + formatted_msgs
     try:
         summary_response = await get_mistral_response(summarization_input)
-        # Try to parse the response as JSON list
+        logger.info(f"Raw summary response from Mistral: {summary_response}")  # Log for debugging
         import json
-        summary = json.loads(summary_response)
-        # Validate summary is a list of dicts with role/content
-        if isinstance(summary, list) and all(
+        try:
+            summary = json.loads(summary_response)
+        except Exception as parse_err:
+            logger.warning(f"Failed to parse summary as JSON: {parse_err}")
+            summary = None
+        # Validate summary is a list of dicts with role/content and not empty
+        if isinstance(summary, list) and summary and all(
             isinstance(m, dict) and "role" in m and "content" in m for m in summary
         ):
             return summary
         else:
-            logger.warning("Summarization output not in expected format, using fallback.")
-            return formatted_msgs[-10:]  # fallback: last 10 messages
+            logger.warning("Summarization output not in expected format or empty, using fallback.")
+            return formatted_msgs[-20:]  # fallback: last 20 messages
     except Exception as e:
         logger.error(f"Failed to summarize chat memory: {e}")
-        return formatted_msgs[-10:]  # fallback: last 10 messages
+        return formatted_msgs[-20:]  # fallback: last 20 messages
