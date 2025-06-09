@@ -1,0 +1,43 @@
+import logging
+from mistral_handler import get_mistral_response
+
+logger = logging.getLogger(__name__)
+
+async def summarize_chat_memory(messages: list) -> list:
+    """
+    Use Mistral to select and compress the 10 most important messages from the last 100 messages.
+    Returns a list of summarized/important messages.
+    """
+    summarization_prompt = {
+        "role": "system",
+        "content": (
+            "You are a helpful assistant. The following is a conversation history. "
+            "Select the 10 most important messages (user or assistant) that best capture the context, "
+            "and summarize or compress them if possible. Return the result as a list of message objects in JSON, "
+            "each with a 'role' (user or assistant) and 'content'. Do not include any explanations. "
+            "If you can merge similar messages, do so."
+        )
+    }
+    # Only keep role/content for summarization
+    formatted_msgs = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages if "role" in m and "content" in m
+    ]
+    # Prepend the summarization prompt
+    summarization_input = [summarization_prompt] + formatted_msgs
+    try:
+        summary_response = await get_mistral_response(summarization_input)
+        # Try to parse the response as JSON list
+        import json
+        summary = json.loads(summary_response)
+        # Validate summary is a list of dicts with role/content
+        if isinstance(summary, list) and all(
+            isinstance(m, dict) and "role" in m and "content" in m for m in summary
+        ):
+            return summary
+        else:
+            logger.warning("Summarization output not in expected format, using fallback.")
+            return formatted_msgs[-10:]  # fallback: last 10 messages
+    except Exception as e:
+        logger.error(f"Failed to summarize chat memory: {e}")
+        return formatted_msgs[-10:]  # fallback: last 10 messages
