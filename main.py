@@ -47,6 +47,13 @@ GENERIC_CHITCHAT_KEYWORDS = [
     "hello there", "yo bro", "yo bhai", "bhai", "bro", "brother", "dude", "buddy"
 ]
 
+# Keywords that indicate the user is following up or referencing previous context
+FOLLOWUP_KEYWORDS = [
+    "what about", "what did", "what was", "can you remind", "do you remember", "remind me", "earlier", "previously", "before",
+    "last time", "as i said", "as you said", "as mentioned", "from earlier", "from before", "about that", "about earlier", "about before",
+    "previous message", "previous chat", "previous conversation", "in our last chat", "in our conversation"
+]
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
