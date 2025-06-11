@@ -50,23 +50,23 @@ load_dotenv()
 
 app = FastAPI(title="GigaBhai API")
 
-# Add CORS middleware
-# --- CORS CONFIGURATION ---
-# IMPORTANT: For production, only allow trusted domains. Credentials (cookies/auth) require explicit origins.
-# If you use cookies for auth, ensure your frontend uses https://www.gigabhai.com for all requests.
-# For local development, add localhost origins as needed.
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://gigabhai-frontend.vercel.app",
-        "https://gigabhai.com",
-        "https://www.gigabhai.com"
+        "http://localhost:8081",  # Expo web development server
+        "http://localhost:19006",  # Expo web default port
+        "http://localhost:3000",   # Common React dev server
+        "https://your-production-domain.com",  # Add your production domain here
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
-# --- END CORS CONFIGURATION ---
+
+
+# CORS is already configured above with the app.add_middleware() call
 
 # --- COOKIE SETTING UTILITY ---
 from fastapi import Response
@@ -1092,4 +1092,3 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
