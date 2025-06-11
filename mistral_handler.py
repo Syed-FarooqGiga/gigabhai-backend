@@ -6,17 +6,43 @@ async def get_mistral_response(messages: list):
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Optimize messages: strip whitespace from content, only keep 'role' and 'content'
+    # Optimize messages and ensure proper formatting
     optimized_messages = []
+    seen_messages = set()  # To avoid duplicate messages
+    
     for msg in messages:
-        if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-            optimized_messages.append({
-                'role': msg['role'],
-                'content': str(msg['content']).strip()
-            })
+        if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+            continue
+            
+        # Clean and format the content
+        content = str(msg['content']).strip()
+        if not content:  # Skip empty messages
+            continue
+            
+        # Create a unique key for this message to detect duplicates
+        msg_key = f"{msg['role']}:{content[:100]}"
+        if msg_key in seen_messages:
+            continue
+            
+        seen_messages.add(msg_key)
+        optimized_messages.append({
+            'role': msg['role'],
+            'content': content
+        })
+    
+    # Ensure we don't exceed context window
+    max_messages = 30  # Keep last 30 messages for context
+    if len(optimized_messages) > max_messages:
+        optimized_messages = optimized_messages[-max_messages:]
+    
     payload = {
-        "model": "mistral-small",  # Changed to a faster model
-        "messages": optimized_messages
+        "model": "mistral-large-latest",
+        "messages": optimized_messages,
+        "temperature": 0.7,  # Slightly more creative
+        "max_tokens": 50000000,   # Limit response length
+        "top_p": 0.9,
+        "frequency_penalty": 0.5,  # Reduce repetition
+        "presence_penalty": 0.5   # Encourage topic variety
     }
     import time
     max_retries = 3
