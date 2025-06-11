@@ -6,43 +6,57 @@ async def get_mistral_response(messages: list):
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Optimize messages and ensure proper formatting
-    optimized_messages = []
-    seen_messages = set()  # To avoid duplicate messages
     
-    for msg in messages:
-        if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
-            continue
-            
-        # Clean and format the content
-        content = str(msg['content']).strip()
-        if not content:  # Skip empty messages
-            continue
-            
-        # Create a unique key for this message to detect duplicates
-        msg_key = f"{msg['role']}:{content[:100]}"
-        if msg_key in seen_messages:
-            continue
-            
-        seen_messages.add(msg_key)
-        optimized_messages.append({
-            'role': msg['role'],
-            'content': content
+    # Separate system messages from conversation history
+    system_messages = [msg for msg in messages if msg.get('role') == 'system']
+    conversation_messages = [msg for msg in messages if msg.get('role') != 'system']
+    
+    # Get the latest user message (should be the last message in the list)
+    latest_user_message = next(
+        (msg for msg in reversed(conversation_messages) if msg.get('role') == 'user'),
+        None
+    )
+    
+    # If we have a system message, use it as context
+    system_prompt = ""
+    if system_messages:
+        system_prompt = "\n".join([msg.get('content', '') for msg in system_messages if msg.get('content')])
+    
+    # Prepare the final messages list with clear instructions
+    final_messages = []
+    
+    # Add system prompt if it exists
+    if system_prompt:
+        final_messages.append({
+            "role": "system",
+            "content": system_prompt
         })
     
-    # Ensure we don't exceed context window
-    max_messages = 30  # Keep last 30 messages for context
-    if len(optimized_messages) > max_messages:
-        optimized_messages = optimized_messages[-max_messages:]
+    # Add context from conversation history (excluding the latest user message)
+    if len(conversation_messages) > 1:
+        context_messages = conversation_messages[:-1]  # All messages except the last one
+        final_messages.append({
+            "role": "system",
+            "content": "Here is the conversation history for context. Only reference these messages if they are relevant to the current question:\n" + 
+                       "\n".join([f"{msg.get('role').capitalize()}: {msg.get('content')}" for msg in context_messages])
+        })
     
+    # Add the latest user message with clear instructions
+    if latest_user_message:
+        final_messages.append({
+            "role": "user",
+            "content": f"Current message to respond to (only respond to this, only use context if needed): {latest_user_message.get('content')}"
+        })
+    
+    # Prepare the payload
     payload = {
         "model": "mistral-large-latest",
-        "messages": optimized_messages,
-        "temperature": 0.7,  # Slightly more creative
-        "max_tokens": 50000000,   # Limit response length
+        "messages": final_messages,
+        "temperature": 0.7,
+        "max_tokens": 500,
         "top_p": 0.9,
-        "frequency_penalty": 0.5,  # Reduce repetition
-        "presence_penalty": 0.5   # Encourage topic variety
+        "frequency_penalty": 0.5,
+        "presence_penalty": 0.5
     }
     import time
     max_retries = 3
