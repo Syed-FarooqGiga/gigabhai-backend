@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Body, status
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Body, status, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uuid  # Added for generating unique IDs
@@ -50,20 +50,35 @@ load_dotenv()
 
 app = FastAPI(title="GigaBhai API")
 
-# Configure CORS
+# Configure CORS with more permissive settings for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8081",  # Expo web development server
-        "http://localhost:19006",  # Expo web default port
-        "http://localhost:3000",   # Common React dev server
-        "https://your-production-domain.com",  # Add your production domain here
-    ],
+    allow_origins=["*"],  # Allow all origins for now
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],
 )
+
+# Add middleware to handle OPTIONS method for all routes
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = JSONResponse(content={"message": "OK"}, status_code=200)
+    else:
+        response = await call_next(request)
+    
+    # Add CORS headers to all responses
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
+# Test endpoint to verify CORS is working
+@app.get("/test-cors")
+async def test_cors():
+    return {"message": "CORS is working!"}
 
 
 # CORS is already configured above with the app.add_middleware() call
@@ -585,12 +600,29 @@ async def generate_heading(request: HeadingRequest):
 
 # Add new endpoint for conversation management
 @app.post("/chat")
-async def chat(request: Request, current_user: dict = Depends(get_current_user)):
+@app.options("/chat", include_in_schema=False)
+async def chat(
+    request: Request, 
+    current_user: dict = Depends(get_current_user),
+    origin: str = Header(None, include_in_schema=False)
+):
     """Handle chat messages and generate responses using Mistral.
     
     This endpoint processes incoming chat messages, retrieves conversation history,
     generates a response using Mistral, and stores the conversation in Firestore.
     """
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = JSONResponse(
+            content={"message": "OK"}, 
+            status_code=200
+        )
+        response.headers["Access-Control-Allow-Origin"] = origin or "*"
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+    
     try:
         data = await request.json()
         message = data.get("message")
@@ -598,15 +630,33 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         conversation_id = data.get("conversation_id")
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
+            
+        # Log the incoming request for debugging
+        logger.info(f"Chat request - User: {current_user.get('uid')}, Conversation: {conversation_id}, Personality: {personality}")
+        
+        # Prepare response headers for CORS
+        headers = {
+            "Access-Control-Allow-Origin": origin or "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true"
+        }
 
         if not message:
             # Defensive: Always return a valid conversation_id
-            return ChatResponse(
-                message="Message is required",
-                conversation_id=conversation_id,
-                timestamp=datetime.now().isoformat(),
-                personality=personality
+            response = JSONResponse(
+                content={
+                    "message": "Message is required",
+                    "conversation_id": conversation_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "personality": personality
+                },
+                status_code=400
             )
+            # Add CORS headers
+            for key, value in headers.items():
+                response.headers[key] = value
+            return response
 
         # Specific response for Mythili L
         # Ensure 'message' is not None before calling strip() and lower()
@@ -622,12 +672,19 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             if not conversation_id:
                 import uuid
                 conversation_id = str(uuid.uuid4())
-            return ChatResponse(
-                message=special_response_text,
-                timestamp=datetime.now().isoformat(),
-                personality=personality, # Use the personality from the original request
-                conversation_id=conversation_id
+            response = JSONResponse(
+                content={
+                    "message": special_response_text,
+                    "timestamp": datetime.now().isoformat(),
+                    "personality": personality,
+                    "conversation_id": conversation_id
+                },
+                status_code=200
             )
+            # Add CORS headers
+            for key, value in headers.items():
+                response.headers[key] = value
+            return response
         
         # Get user ID and profile ID
         user_id = current_user.get('uid')
@@ -891,14 +948,31 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
             # Clean up excessive whitespace
             response = response.strip()
         # --- END POST-PROCESSING ---
-        final_chat_response = ChatResponse(
-            message=response,  # This is the sanitized AI message
-            timestamp=datetime.utcnow().isoformat(),
-            personality=personality,  # This should be in scope from earlier in the function
-            conversation_id=conversation_id
+        # Create JSON response with CORS headers
+        response_data = {
+            "message": response,  # This is the sanitized AI message
+            "timestamp": datetime.now().isoformat(),
+            "personality": personality,  # Use the personality from the original request
+            "conversation_id": conversation_id
+        }
+        
+        # Create JSON response
+        response = JSONResponse(
+            content=response_data,
+            status_code=200
         )
-        logger.info(f"Outgoing ChatResponse (Success Path) for conversation_id {conversation_id}: {{final_chat_response.model_dump_json()}}")
-        return final_chat_response
+        
+        # Add CORS headers
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+        for key, value in headers.items():
+            response.headers[key] = value
+            
+        logger.info(f"Outgoing ChatResponse (Success Path) for conversation_id {conversation_id}: {response_data}")
+        return response
 
     except HTTPException as he:
         logger.error(f"HTTP error in chat endpoint: {str(he.detail)}")
@@ -913,41 +987,76 @@ async def chat(request: Request, current_user: dict = Depends(get_current_user))
         elif 'data' in locals() and isinstance(locals().get('data'), dict) and locals().get('data').get('personality'):
              _personality_for_error = locals().get('data').get('personality')
 
-        return ChatResponse(
-            message=str(he.detail),
-            timestamp=datetime.now().isoformat(),
-            personality=_personality_for_error,
-            conversation_id=_conversation_id_for_error
+        # Create error response with CORS headers
+        error_response = JSONResponse(
+            content={
+                "message": str(he.detail),
+                "timestamp": datetime.now().isoformat(),
+                "personality": _personality_for_error,
+                "conversation_id": _conversation_id_for_error
+            },
+            status_code=he.status_code if hasattr(he, 'status_code') else 400
         )
+        
+        # Add CORS headers
+        for key, value in headers.items():
+            error_response.headers[key] = value
+            
+        return error_response
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
-        return ChatResponse(
-            message="Invalid JSON in request body. Please check your request format.",
-            timestamp=datetime.now().isoformat(),
-            personality="swag", # Default personality
-            conversation_id=str(uuid.uuid4()) # Always generate a new UUID here
+        # Create error response with CORS headers
+        error_response = JSONResponse(
+            content={
+                "message": "Invalid JSON in request body",
+                "timestamp": datetime.now().isoformat(),
+                "personality": "swag",
+                "conversation_id": str(uuid.uuid4())
+            },
+            status_code=400
         )
+        
+        # Add CORS headers
+        if 'headers' in locals():
+            for key, value in headers.items():
+                error_response.headers[key] = value
+                
+        return error_response
     except Exception as e:
         logger.error(f"Unexpected error in chat endpoint: {str(e)}")
         logger.error(traceback.format_exc())
-        # Defensive: Return a response with a generated conversation_id
-        
+        # Safely determine conversation_id and personality for the error response
         _conversation_id_for_error = str(uuid.uuid4()) # Default to new UUID
         if 'conversation_id' in locals() and locals().get('conversation_id'):
             _conversation_id_for_error = locals().get('conversation_id')
-            
+        
         _personality_for_error = "swag" # Default personality
         if 'personality' in locals() and locals().get('personality'):
             _personality_for_error = locals().get('personality')
         elif 'data' in locals() and isinstance(locals().get('data'), dict) and locals().get('data').get('personality'):
              _personality_for_error = locals().get('data').get('personality')
 
-        return ChatResponse(
-            message="An unexpected error occurred. Please try again.",
-            timestamp=datetime.now().isoformat(),
-            personality=_personality_for_error,
-            conversation_id=_conversation_id_for_error
+        # Create error response with CORS headers
+        error_response = JSONResponse(
+            content={
+                "message": f"An unexpected error occurred: {str(e)}",
+                "timestamp": datetime.now().isoformat(),
+                "personality": _personality_for_error,
+                "conversation_id": _conversation_id_for_error
+            },
+            status_code=500
         )
+        
+        # Add CORS headers
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+        for key, value in headers.items():
+            error_response.headers[key] = value
+                
+        return error_response
 
 @app.put("/conversations/{conversation_id}")
 async def update_conversation(conversation_id: str, request: Request, current_user: dict = Depends(get_current_user)):
