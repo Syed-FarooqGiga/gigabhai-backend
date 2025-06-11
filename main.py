@@ -50,30 +50,15 @@ load_dotenv()
 
 app = FastAPI(title="GigaBhai API")
 
-# Configure CORS with more permissive settings for development
+# Configure CORS middleware for VPS deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
 )
-
-# Add middleware to handle OPTIONS method for all routes
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    if request.method == "OPTIONS":
-        response = JSONResponse(content={"message": "OK"}, status_code=200)
-    else:
-        response = await call_next(request)
-    
-    # Add CORS headers to all responses
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
 
 # Test endpoint to verify CORS is working
 @app.get("/test-cors")
@@ -1198,6 +1183,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         ).model_dump() # Use .model_dump() for FastAPI < 0.95.0, or .dict() if appropriate
     )
 
+# To run the server manually:
+# uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Or use: python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
