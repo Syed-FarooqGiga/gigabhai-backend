@@ -23,12 +23,22 @@ async def get_groq_response(messages: list):
     conversation_messages = [msg for msg in messages if msg.get('role') != 'system']
     final_messages.extend(conversation_messages)
     
-    # Prepare the payload for Groq
+    # Prepare the payload for Groq with more conservative token limits
+    # Calculate max tokens based on input length (leaving room for response)
+    # Rough estimate: 4 chars ≈ 1 token, but be conservative
+    input_text = ' '.join([msg.get('content', '') for msg in final_messages])
+    estimated_input_tokens = len(input_text) // 2  # Conservative estimate
+    
+    # Set max_tokens to leave enough room for the response
+    # For llama3-70b-8192, we'll keep a safe margin
+    max_allowed_tokens = 8000  # Leave some room for safety
+    max_tokens = min(2048, max(100, max_allowed_tokens - estimated_input_tokens))
+    
     payload = {
         "model": "llama3-70b-8192",
         "messages": final_messages,
         "temperature": 0.7,
-        "max_tokens": 5500,
+        "max_tokens": max_tokens,
         "top_p": 0.9,
         "frequency_penalty": 0.5,
         "presence_penalty": 0.5
