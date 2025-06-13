@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from firebase_admin import auth, firestore
 from firebase_admin.exceptions import FirebaseError
 from firebase_auth import verify_firebase_token
-from mistral_handler import get_mistral_response
+from groq_handler import get_groq_response
 from personalities import get_personality_context
 from firebase_memory_manager import (
     store_message,
@@ -583,6 +583,46 @@ async def generate_heading(request: HeadingRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/groq-heading")
+async def generate_groq_heading(request: HeadingRequest):
+    try:
+        # Create a system prompt for title generation that focuses on content
+        system_prompt = """You are a helpful assistant that generates extremely concise titles for conversations. 
+        Focus ONLY on the main topic or theme discussed in the messages, ignoring any personality or style of communication.
+        The title should be just 1-2 words that capture the essence of what was actually discussed.
+        Use impactful, memorable words that reflect the content.
+        Respond with ONLY the title, no additional text or explanation.
+        Do not include personality names or styles in the title."""
+        
+        # Combine messages into a single context, focusing on the actual content
+        conversation_context = "\n".join([
+            msg for msg in request.messages 
+            if not msg.startswith("[SPEECH]")  # Exclude speech indicators
+        ])
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Generate a 1-2 word title that captures the main topic discussed in this conversation:\n{conversation_context}"}
+        ]
+        
+        heading = await get_groq_response(messages)
+        
+        # Clean up the response to ensure it's just the title
+        heading = heading.strip()
+        if heading.startswith('"') and heading.endswith('"'):
+            heading = heading[1:-1]
+        
+        # Ensure the heading is not too long (max 2 words)
+        words = heading.split()
+        if len(words) > 2:
+            heading = " ".join(words[:2])
+        
+        return {"heading": heading}
+    except Exception as e:
+        print("Exception in /groq-heading:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Add new endpoint for conversation management
 @app.post("/chat")
 @app.options("/chat", include_in_schema=False)
@@ -760,11 +800,11 @@ async def chat(
             logger.warning(f"Last message role for Mistral is {messages[-1]['role']}; appending user message to fix.")
             messages.append({"role": "user", "content": message})
 
-        logger.info(f"Prompt sent to LLM (Mistral): {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        logger.info(f"Prompt sent to LLM (Groq): {json.dumps(messages, ensure_ascii=False, indent=2)}")
         response = None
         try:
-            # Get response from Mistral
-            response = await get_mistral_response(messages)
+            # Get response from Groq
+            response = await get_groq_response(messages)
             
             # Clean and validate the response
             def clean_llm_response(response):
@@ -850,7 +890,7 @@ async def chat(
             response = remove_meta_references(response)
             
         except Exception as e:
-            logger.error(f"Error generating response with Mistral: {str(e)}")
+            logger.error(f"Error generating response with Groq: {str(e)}")
             logger.error(traceback.format_exc())
             response = "Hmm, let me think of a better response. Try asking me something else!"
 
@@ -875,7 +915,7 @@ async def chat(
         # After storing, summarize the last 100 messages and store as compressed memory
         try:
             from firebase_memory_manager import get_chat_messages, store_compressed_memory
-            from mistral_memory import summarize_chat_memory
+            from groq_memory import summarize_chat_memory
             last_100_msgs = await get_chat_messages(
                 chat_id=conversation_id,
                 user_id=user_id,

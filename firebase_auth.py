@@ -1,50 +1,56 @@
 import firebase_admin
 from firebase_admin import credentials, auth
-from config import (
-    FIREBASE_API_KEY,
-    FIREBASE_AUTH_DOMAIN,
-    FIREBASE_PROJECT_ID,
-    FIREBASE_STORAGE_BUCKET,
-    FIREBASE_MESSAGING_SENDER_ID,
-    FIREBASE_APP_ID
-)
 import os
 import logging
+from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-import json
+# Initialize Firebase Admin SDK
+def initialize_firebase():
+    try:
+        # Check if Firebase app is already initialized
+        if not firebase_admin._apps:
+            # Get the service account file path from environment variable
+            service_account_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
+            
+            if not service_account_path:
+                logger.error("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
+                raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
+                
+            # Normalize the path for the current OS
+            service_account_path = os.path.normpath(service_account_path)
+            
+            if not os.path.exists(service_account_path):
+                logger.error(f"Firebase service account file not found at: {service_account_path}")
+                logger.error(f"Current working directory: {os.getcwd()}")
+                raise FileNotFoundError(f"Firebase service account file not found at: {service_account_path}")
+            
+            try:
+                # Initialize with the service account file
+                cred = credentials.Certificate(service_account_path)
+                logger.info(f"Successfully loaded Firebase credentials from: {service_account_path}")
+            except Exception as e:
+                logger.error(f"Error loading Firebase credentials: {str(e)}")
+                raise
+            
+            # Initialize the app with the credentials
+            firebase_admin.initialize_app(cred, {
+                'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET')
+            })
+            
+            logger.info("Firebase Admin SDK initialized successfully.")
+        else:
+            logger.info("Firebase Admin SDK already initialized.")
+            
+    except Exception as e:
+        logger.error(f"Error initializing Firebase: {str(e)}")
+        raise
 
-# Initialize Firebase Admin SDK from environment variable
-SERVICE_ACCOUNT_JSON_STRING = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
-
-if not SERVICE_ACCOUNT_JSON_STRING:
-    logger.error("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
-    raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
-
-try:
-    service_account_info = json.loads(SERVICE_ACCOUNT_JSON_STRING)
-    cred = credentials.Certificate(service_account_info)
-    logger.info("Firebase credentials loaded successfully from FIREBASE_SERVICE_ACCOUNT_JSON environment variable.")
-except json.JSONDecodeError as e:
-    logger.error(f"Error decoding FIREBASE_SERVICE_ACCOUNT_JSON: {str(e)}")
-    raise
-except Exception as e:
-    logger.error(f"Error initializing Firebase credentials from environment variable: {str(e)}")
-    raise
-
-from config import FIREBASE_STORAGE_BUCKET
-
-try:
-    firebase_admin.initialize_app(cred, {
-        "storageBucket": FIREBASE_STORAGE_BUCKET
-    })
-    logger.info(f"Firebase Admin SDK initialized successfully with service account file. Storage bucket: {FIREBASE_STORAGE_BUCKET}")
-except Exception as e:
-    logger.error(f"Error initializing Firebase Admin SDK: {str(e)}")
-    raise
+# Initialize Firebase when this module is imported
+initialize_firebase()
 
 async def verify_firebase_token(token: str) -> dict:
     try:
