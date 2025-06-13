@@ -28,7 +28,7 @@ async def get_groq_response(messages: list):
         "model": "llama3-70b-8192",
         "messages": final_messages,
         "temperature": 0.7,
-        "max_tokens": 40000,
+        "max_tokens": 16348,
         "top_p": 0.9,
         "frequency_penalty": 0.5,
         "presence_penalty": 0.5
