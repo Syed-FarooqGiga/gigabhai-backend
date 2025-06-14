@@ -1,12 +1,16 @@
 import logging
 from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uuid
 from groq_handler import get_groq_response
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
@@ -26,6 +30,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     conversation_id: str
+    status: str = "success"
+    error: Optional[str] = None
 
 # Personality system prompts
 PERSONALITY_PROMPTS = {
@@ -46,82 +52,109 @@ PERSONALITY_PROMPTS = {
 async def chat(
     request: ChatRequest,
     authorization: Optional[str] = Header(None)
-):
+) -> ChatResponse:
     """
     Handle chat messages and return AI responses using Groq API.
     
     Args:
         request: Chat request containing message and conversation context
+        authorization: Bearer token for authentication
         
     Returns:
-        ChatResponse with AI response and conversation ID
+        JSONResponse with AI response, conversation ID, and status
     """
     try:
         # Verify authentication
         if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(
+            logger.warning("Missing or invalid authorization header")
+            return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing authentication token"
+                content={
+                    "status": "error",
+                    "message": "Authentication required",
+                    "conversation_id": request.conversation_id or "",
+                    "error": "Invalid or missing authentication token"
+                }
             )
             
-        # Extract token (you would verify this token in a real app)
+        # Extract token
         token = authorization.replace("Bearer ", "")
         
-        # Extract data from request
-        message = request.message.strip()
-        personality = request.personality.lower()
-        conversation_id = request.conversation_id
-        chat_history = request.chat_history or []
-        
-        logger.info(f"Received chat request from user {request.user_id}")
-        
-        if not message:
-            raise HTTPException(
+        # Validate request data
+        if not request.message or not request.message.strip():
+            logger.warning("Empty message received")
+            return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Message cannot be empty"
+                content={
+                    "status": "error",
+                    "message": "Message cannot be empty",
+                    "conversation_id": request.conversation_id or "",
+                    "error": "Empty message"
+                }
             )
         
         # Get the system prompt based on personality
+        personality = request.personality.lower()
         system_prompt = PERSONALITY_PROMPTS.get(personality, PERSONALITY_PROMPTS['default'])
         
         # Prepare messages for the API
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
+        messages = [{"role": "system", "content": system_prompt}]
         
         # Add chat history if available
-        if chat_history:
-            messages.extend(chat_history)
+        if request.chat_history:
+            messages.extend(request.chat_history)
         
         # Add the current user message
-        messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": request.message.strip()})
+        
+        # Generate conversation ID if new conversation
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        
+        # Log the request
+        logger.info(f"Processing chat request for conversation: {conversation_id}")
         
         # Get response from Groq API
-        logger.info(f"Sending to Groq: {message[:100]}...")
-        response_text = await get_groq_response(messages)
-        
-        # Clean up the response
-        response_text = response_text.strip()
-        if response_text.startswith('"') and response_text.endswith('"'):
-            response_text = response_text[1:-1]
-        
-        # If this is a new conversation, generate a conversation ID
-        if not conversation_id:
-            conversation_id = str(uuid.uuid4())
-        
-        logger.info(f"Generated response: {response_text[:100]}...")
-        
-        return ChatResponse(
-            message=response_text,
-            conversation_id=conversation_id
-        )
-        
-    except HTTPException:
+        try:
+            logger.info(f"Sending to Groq: {request.message[:100]}...")
+            response_text = await get_groq_response(messages)
+            
+            # Clean up the response
+            response_text = response_text.strip()
+            if response_text.startswith('"') and response_text.endswith('"'):
+                response_text = response_text[1:-1]
+                
+            logger.info(f"Successfully generated response for conversation: {conversation_id}")
+            
+            return ChatResponse(
+                message=response_text,
+                conversation_id=conversation_id,
+                status="success"
+            )
+            
+        except Exception as groq_error:
+            logger.error(f"Groq API error: {str(groq_error)}", exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "status": "error",
+                    "message": "Error processing your request",
+                    "conversation_id": conversation_id,
+                    "error": "Service temporarily unavailable"
+                }
+            )
+            
+    except HTTPException as http_error:
+        logger.error(f"HTTP error: {str(http_error)}")
         raise
+        
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
-        logger.error(error_detail)
-        raise HTTPException(
+        logger.error(f"Unexpected error in chat endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail
+            content={
+                "status": "error",
+                "message": "An unexpected error occurred",
+                "conversation_id": request.conversation_id if hasattr(request, 'conversation_id') else "",
+                "error": "Internal server error"
+            }
         )
