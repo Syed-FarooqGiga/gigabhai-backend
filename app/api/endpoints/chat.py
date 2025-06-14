@@ -135,11 +135,7 @@ async def chat_options():
         status_code=204,  # No Content
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "600",
-            "Vary": "Origin"
+            "Access-Control-Allow-Methods": "POST, OPTIONS"
         }
     )
 
@@ -158,10 +154,9 @@ async def chat(
     Returns:
         JSONResponse with AI response, conversation ID, and status
     """
-    # Common CORS headers
-    cors_headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Credentials": "true",
+    # Common response headers
+    response_headers = {
+        "Content-Type": "application/json",
         "Vary": "Origin"
     }
     
@@ -179,7 +174,7 @@ async def chat(
                     "conversation_id": conversation_id,
                     "error": "Invalid or missing authentication token"
                 },
-                headers=cors_headers
+                headers=response_headers
             )
         
         # Extract token
@@ -197,7 +192,7 @@ async def chat(
                     "conversation_id": conversation_id,
                     "error": "Empty message"
                 },
-                headers=cors_headers
+                headers=response_headers
             )
         
         # Validate personality
@@ -212,7 +207,7 @@ async def chat(
                     "conversation_id": conversation_id,
                     "error": "Invalid personality"
                 },
-                headers=cors_headers
+                headers=response_headers
             )
         
         # Load chat history if available
@@ -276,7 +271,7 @@ async def chat(
                     "conversation_id": conversation_id,
                     "error": "Service temporarily unavailable"
                 },
-                headers=cors_headers
+                headers=response_headers
             )
             
     except HTTPException as http_error:
@@ -303,5 +298,5 @@ async def chat(
                 "conversation_id": conversation_id,
                 "error": str(e)
             },
-            headers=cors_headers
+            headers=response_headers
         )
