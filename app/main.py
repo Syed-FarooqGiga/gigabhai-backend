@@ -25,22 +25,33 @@ app = FastAPI(
 )
 
 # Configure CORS
+# List of allowed origins
 origins = [
     "https://www.gigabhai.com",
     "http://localhost:3000",
     "http://localhost:8081",
     "https://gigabhai.com",
-    "https://api.gigabhai.com"
+    "https://api.gigabhai.com",
+    "http://127.0.0.1:8081",
+    "http://localhost:19006"  # Expo web default
 ]
 
-# Add CORS middleware
+# Add CORS middleware with explicit configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "*",  # Allow all headers
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With"
+    ],
     expose_headers=["*"],
+    max_age=600,  # 10 minutes
 )
 
 # Add middleware to handle CORS preflight requests
@@ -48,21 +59,28 @@ app.add_middleware(
 async def add_cors_headers(request: Request, call_next):
     # Handle preflight requests
     if request.method == "OPTIONS":
-        response = Response()
-        origin = request.headers.get("origin")
-        if origin in origins:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "*"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
+        response = Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": ", ".join(origins) if len(origins) > 1 else origins[0],
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "600"  # 10 minutes
+            }
+        )
         return response
     
     # For regular requests
     response = await call_next(request)
+    
+    # Add CORS headers to all responses
     origin = request.headers.get("origin")
     if origin in origins:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+    
     return response
 
 # Import and include routers after app is created
