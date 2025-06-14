@@ -34,12 +34,17 @@ class TTSRequest(BaseModel):
 @router.options("/tts")
 async def tts_options():
     """Handle OPTIONS request for CORS preflight."""
-    response = Response()
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Max-Age"] = "600"
+    response = Response(
+        status_code=204,  # No Content
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "600",
+            "Vary": "Origin"
+        }
+    )
     return response
 
 @router.post("/tts")
@@ -57,27 +62,44 @@ async def text_to_speech(
     Returns:
         Audio file response with proper headers
     """
-    # Set CORS headers
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    
     audio_path = None
     try:
         if not tts_service:
-            logger.error("TTS service not initialized")
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return {"error": "TTS service is not available"}
+            error_msg = "TTS service is not available"
+            logger.error(error_msg)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"error": error_msg},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true"
+                }
+            )
             
         # Validate input
         if not request.text or len(request.text.strip()) == 0:
-            logger.warning("Empty text received in TTS request")
-            response.status_code = status.HTTP_400_BAD_REQUEST
-            return {"error": "Text cannot be empty"}
+            error_msg = "Text cannot be empty"
+            logger.warning(error_msg)
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": error_msg},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true"
+                }
+            )
             
         if len(request.text) > 500:
-            logger.warning(f"Text too long: {len(request.text)} characters")
-            response.status_code = status.HTTP_400_BAD_REQUEST
-            return {"error": "Text is too long. Maximum 500 characters allowed."}
+            error_msg = "Text is too long. Maximum 500 characters allowed."
+            logger.warning(f"{error_msg} Got {len(request.text)} characters")
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": error_msg},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true"
+                }
+            )
             
         # Generate speech
         language = request.language or "en"
@@ -86,9 +108,16 @@ async def text_to_speech(
         audio_path = tts_service.generate_tts(request.text, language=language)
         
         if not audio_path or not os.path.exists(audio_path):
-            logger.error(f"Failed to generate speech. Audio path: {audio_path}")
-            response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-            return {"error": "Failed to generate speech"}
+            error_msg = f"Failed to generate speech. Audio path: {audio_path}"
+            logger.error(error_msg)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Failed to generate speech"},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true"
+                }
+            )
         
         # Read the audio file
         with open(audio_path, 'rb') as f:
@@ -102,7 +131,8 @@ async def text_to_speech(
             "Pragma": "no-cache",
             "Expires": "0",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Credentials": "true"
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin"
         }
         
         return Response(
@@ -113,16 +143,16 @@ async def text_to_speech(
         )
         
     except Exception as e:
-        logger.error(f"Error in TTS endpoint: {str(e)}", exc_info=True)
-        # Create a new response for errors to ensure CORS headers are set
-        error_response = Response(
-            content={"error": str(e)},
-            media_type="application/json",
-            status_code=500
+        error_msg = f"Error in TTS endpoint: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "Internal server error"},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true"
+            }
         )
-        error_response.headers["Access-Control-Allow-Origin"] = "*"
-        error_response.headers["Access-Control-Allow-Credentials"] = "true"
-        return error_response
         
     finally:
         # Clean up the temporary file if it exists
