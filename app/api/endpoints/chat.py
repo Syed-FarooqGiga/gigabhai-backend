@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, status, Depends, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uuid
@@ -48,6 +48,21 @@ PERSONALITY_PROMPTS = {
     )
 }
 
+@router.options("")
+async def chat_options():
+    """Handle OPTIONS request for CORS preflight."""
+    return Response(
+        status_code=204,  # No Content
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "600",
+            "Vary": "Origin"
+        }
+    )
+
 @router.post("", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
@@ -63,6 +78,13 @@ async def chat(
     Returns:
         JSONResponse with AI response, conversation ID, and status
     """
+    # Common CORS headers
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin"
+    }
+    
     try:
         # Verify authentication
         if not authorization or not authorization.startswith("Bearer "):
@@ -74,7 +96,8 @@ async def chat(
                     "message": "Authentication required",
                     "conversation_id": request.conversation_id or "",
                     "error": "Invalid or missing authentication token"
-                }
+                },
+                headers=cors_headers
             )
             
         # Extract token
@@ -82,15 +105,17 @@ async def chat(
         
         # Validate request data
         if not request.message or not request.message.strip():
-            logger.warning("Empty message received")
+            error_msg = "Message cannot be empty"
+            logger.warning(error_msg)
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": "error",
-                    "message": "Message cannot be empty",
+                    "message": error_msg,
                     "conversation_id": request.conversation_id or "",
                     "error": "Empty message"
-                }
+                },
+                headers=cors_headers
             )
         
         # Get the system prompt based on personality
@@ -125,14 +150,25 @@ async def chat(
                 
             logger.info(f"Successfully generated response for conversation: {conversation_id}")
             
-            return ChatResponse(
+            # Create response with CORS headers
+            response = ChatResponse(
                 message=response_text,
                 conversation_id=conversation_id,
                 status="success"
             )
             
+            # Convert to JSONResponse to add headers
+            json_response = JSONResponse(
+                content=response.dict(),
+                status_code=200,
+                headers=cors_headers
+            )
+            
+            return json_response
+            
         except Exception as groq_error:
-            logger.error(f"Groq API error: {str(groq_error)}", exc_info=True)
+            error_msg = f"Groq API error: {str(groq_error)}"
+            logger.error(error_msg, exc_info=True)
             return JSONResponse(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 content={
@@ -140,12 +176,23 @@ async def chat(
                     "message": "Error processing your request",
                     "conversation_id": conversation_id,
                     "error": "Service temporarily unavailable"
-                }
+                },
+                headers=cors_headers
             )
             
     except HTTPException as http_error:
         logger.error(f"HTTP error: {str(http_error)}")
-        raise
+        # Re-raise HTTPException with CORS headers
+        response = JSONResponse(
+            status_code=http_error.status_code,
+            content={"error": str(http_error.detail)},
+            headers=cors_headers
+        )
+        raise HTTPException(
+            status_code=http_error.status_code,
+            detail=http_error.detail,
+            headers={"WWW-Authenticate": "Bearer"}
+        ) from http_error
         
     except Exception as e:
         logger.error(f"Unexpected error in chat endpoint: {str(e)}", exc_info=True)
