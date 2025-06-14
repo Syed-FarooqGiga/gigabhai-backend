@@ -63,7 +63,7 @@ def prepare_messages(
     user_message: str,
     personality_id: str,
     chat_history: List[Dict[str, Any]] = None
-) -> Tuple[List[Dict[str, str]], str]:
+) -> List[Dict[str, str]]:
     """
     Prepare messages for the LLM with personality context.
     
@@ -73,20 +73,10 @@ def prepare_messages(
         chat_history: Previous chat history (if any)
         
     Returns:
-        Tuple of (messages, conversation_id)
+        List of message dictionaries with role and content
     """
-    # Get personality context
-    personality = PERSONALITIES.get(personality_id, PERSONALITIES["swag_bhai"])
-    context = get_personality_context(personality_id)
-    
-    # Prepare system message with personality
-    system_message = {
-        "role": "system",
-        "content": context["system_prompt"]
-    }
-    
-    # Prepare messages list with system message first
-    messages = [system_message]
+    # Get personality context (returns a list of message objects)
+    messages = get_personality_context(personality_id)
     
     # Add chat history if available
     if chat_history:
@@ -94,7 +84,7 @@ def prepare_messages(
         for msg in chat_history[-MAX_HISTORY_LENGTH:]:
             messages.append({
                 "role": msg["role"],
-                "content": msg["content"]
+                "content": msg["content"].strip()
             })
     
     # Add current user message
@@ -255,7 +245,7 @@ async def chat(
             json_response = JSONResponse(
                 content=response.dict(),
                 status_code=200,
-                headers=cors_headers
+                headers=response_headers
             )
             
             return json_response
@@ -276,11 +266,11 @@ async def chat(
             
     except HTTPException as http_error:
         logger.error(f"HTTP error: {str(http_error)}")
-        # Re-raise HTTPException with CORS headers
+        # Re-raise HTTPException with response headers
         response = JSONResponse(
             status_code=http_error.status_code,
             content={"error": str(http_error.detail)},
-            headers=cors_headers
+            headers=response_headers
         )
         raise HTTPException(
             status_code=http_error.status_code,
