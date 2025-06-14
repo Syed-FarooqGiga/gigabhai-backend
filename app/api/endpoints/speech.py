@@ -38,11 +38,7 @@ async def tts_options():
         status_code=204,  # No Content
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "600",
-            "Vary": "Origin"
+            "Access-Control-Allow-Methods": "POST, OPTIONS"
         }
     )
     return response
@@ -124,15 +120,15 @@ async def text_to_speech(
             audio_data = f.read()
         
         # Create response with CORS headers
-        headers = {
+        response_headers = {
             "Content-Type": "audio/wav",
+            "Vary": "Origin"
+        }
+        headers = {
             "Content-Disposition": "inline; filename=speech.wav",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Credentials": "true",
-            "Vary": "Origin"
+            **response_headers
         }
         
         return Response(
@@ -143,15 +139,11 @@ async def text_to_speech(
         )
         
     except Exception as e:
-        error_msg = f"Error in TTS endpoint: {str(e)}"
-        logger.error(error_msg, exc_info=True)
+        logger.error(f"Error in text_to_speech: {str(e)}", exc_info=True)
         return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"error": "Internal server error"},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Credentials": "true"
-            }
+            status_code=500,
+            content={"error": str(e)},
+            headers={"Content-Type": "application/json"}
         )
         
     finally:
