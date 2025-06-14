@@ -21,10 +21,17 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_origin_regex=r"https?://(localhost:3000|www\.gigabhai\.com|gigabhai\.com|api\.gigabhai\.com|www\.gigabhai\.com:.*|localhost:.*)",
+    allow_origins=[
+        "https://www.gigabhai.com",
+        "http://localhost:3000",
+        "https://gigabhai.com"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,  # 10 minutes
 )
 
 # Import and include routers
