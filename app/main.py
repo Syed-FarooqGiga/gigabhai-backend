@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response as FastAPIResponse
 import logging
 from dotenv import load_dotenv
+from typing import Optional, Union, Dict, Any
 import os
+from typing import Callable, Any, Awaitable
 
 # Set up logging
 logging.basicConfig(
@@ -14,6 +17,17 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# List of allowed origins
+ALLOWED_ORIGINS = [
+    "https://www.gigabhai.com",
+    "http://localhost:3000",
+    "https://gigabhai.com",
+    "https://api.gigabhai.com",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "https://*.gigabhai.com"
+]
+
 # Create FastAPI app with metadata
 app = FastAPI(
     title="GigaBhai API",
@@ -24,22 +38,31 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# Configure CORS
-# List of allowed origins
-origins = [
-    "https://www.gigabhai.com",
-    "http://localhost:3000",
-    "https://gigabhai.com",
-    "https://api.gigabhai.com",
-    "http://localhost:8081",  # For local development with Expo
-    "http://127.0.0.1:8081",  # Alternative localhost
-    "https://*.gigabhai.com"  # All subdomains of gigabhai.com
-]
+def is_origin_allowed(origin: str) -> bool:
+    """Check if the origin is allowed."""
+    if not origin:
+        return False
+    
+    # Check exact matches
+    if origin in ALLOWED_ORIGINS:
+        return True
+    
+    # Check for localhost with any port
+    if any(origin.startswith(f"http://{domain}") or 
+           origin.startswith(f"https://{domain}")
+           for domain in ["localhost", "127.0.0.1"]):
+        return True
+    
+    # Check for gigabhai.com subdomains
+    if ".gigabhai.com" in origin:
+        return True
+    
+    return False
 
 # Add CORS middleware with production settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ALLOWED_ORIGINS,
     allow_origin_regex=r'https?://(?:localhost:\d+|127\.0\.0\.1:\d+|(?:[\w-]+\.)*gigabhai\.com)',
     allow_credentials=True,
     allow_methods=["*"],
@@ -48,30 +71,43 @@ app.add_middleware(
     max_age=600,  # 10 minutes
 )
 
-# Add CORS headers to all responses
 @app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
+async def add_cors_headers(request: Request, call_next) -> Response:
+    """Middleware to add CORS headers to all responses."""
     # Handle preflight requests
     if request.method == "OPTIONS":
-        response = Response()
-        origin = request.headers.get('origin')
-        if is_allowed_origin(origin):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Max-Age"] = "600"
+        response = Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={
+                "Access-Control-Allow-Origin": ", ".join(ALLOWED_ORIGINS),
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "600"
+            }
+        )
         return response
     
     # Process the request
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        response = JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "Internal server error"},
+            headers={
+                "Access-Control-Allow-Origin": ", ".join(ALLOWED_ORIGINS),
+                "Access-Control-Allow-Credentials": "true"
+            }
+        )
+        return response
     
     # Add CORS headers to the response
-    origin = request.headers.get('origin')
-    if is_allowed_origin(origin):
+    origin = request.headers.get("origin")
+    if origin and is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Expose-Headers"] = "*"
     
     return response
 
