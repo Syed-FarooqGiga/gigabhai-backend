@@ -31,6 +31,17 @@ class TTSRequest(BaseModel):
     text: str
     language: str = "en"
 
+@router.options("/tts")
+async def tts_options():
+    """Handle OPTIONS request for CORS preflight."""
+    response = Response()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Max-Age"] = "600"
+    return response
+
 @router.post("/tts")
 async def text_to_speech(
     request: TTSRequest,
@@ -46,15 +57,9 @@ async def text_to_speech(
     Returns:
         Audio file response with proper headers
     """
-    # Set CORS headers for preflight
+    # Set CORS headers
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Credentials"] = "true"
-    
-    # Handle preflight request
-    if request.method == "OPTIONS":
-        return Response(status_code=200)
     
     audio_path = None
     try:
@@ -89,17 +94,17 @@ async def text_to_speech(
         with open(audio_path, 'rb') as f:
             audio_data = f.read()
         
-        # Set response headers
+        # Create response with CORS headers
         headers = {
             "Content-Type": "audio/wav",
             "Content-Disposition": "inline; filename=speech.wav",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
             "Expires": "0",
-            "Access-Control-Allow-Origin": "*"
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true"
         }
         
-        # Return the audio file
         return Response(
             content=audio_data,
             media_type="audio/wav",
@@ -109,9 +114,15 @@ async def text_to_speech(
         
     except Exception as e:
         logger.error(f"Error in TTS endpoint: {str(e)}", exc_info=True)
-        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        response.headers["Content-Type"] = "application/json"
-        return {"error": str(e)}
+        # Create a new response for errors to ensure CORS headers are set
+        error_response = Response(
+            content={"error": str(e)},
+            media_type="application/json",
+            status_code=500
+        )
+        error_response.headers["Access-Control-Allow-Origin"] = "*"
+        error_response.headers["Access-Control-Allow-Credentials"] = "true"
+        return error_response
         
     finally:
         # Clean up the temporary file if it exists
