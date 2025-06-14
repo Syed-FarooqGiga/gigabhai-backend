@@ -64,6 +64,9 @@ class TTSService:
         if not text or not text.strip():
             return None, "No text provided"
         
+        mp3_filename = None
+        wav_filename = None
+        
         try:
             # Generate a unique filename
             timestamp = int(time.time())
@@ -83,12 +86,10 @@ class TTSService:
             audio = AudioSegment.from_mp3(mp3_filename)
             audio.export(wav_filename, format="wav")
             
-            # Clean up the temporary MP3 file
-            try:
-                os.remove(mp3_filename)
-            except Exception as e:
-                logger.warning(f"Could not remove temporary MP3 file: {e}")
-            
+            # Verify the file was created
+            if not os.path.exists(wav_filename):
+                return None, "Failed to create WAV file"
+                
             logger.info(f"TTS generated successfully: {wav_filename}")
             return wav_filename, None
             
@@ -96,6 +97,14 @@ class TTSService:
             error_msg = f"Error in text_to_speech: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return None, error_msg
+            
+        finally:
+            # Clean up the temporary MP3 file if it exists
+            if mp3_filename and os.path.exists(mp3_filename):
+                try:
+                    os.remove(mp3_filename)
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary MP3 file: {e}")
 
     async def generate_tts(
         self, 
