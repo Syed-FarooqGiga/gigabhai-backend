@@ -12,7 +12,48 @@ from config import FIREBASE_STORAGE_BUCKET
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Firebase Storage
+# Initialize Firebase Admin SDK
+try:
+    # Check if Firebase app is already initialized
+    if not firebase_admin._apps:
+        # Get the service account file path from environment variable
+        service_account_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
+        
+        if not service_account_path:
+            raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON environment variable not set.")
+        
+        # For Linux server, handle Windows-style paths if present
+        if service_account_path.startswith('C:'):
+            # Extract just the filename and look in the current directory
+            filename = os.path.basename(service_account_path)
+            service_account_path = os.path.join(os.getcwd(), filename)
+            logger.info(f"Using local service account file: {service_account_path}")
+        
+        # Normalize the path for the current OS
+        service_account_path = os.path.normpath(service_account_path)
+        
+        if not os.path.exists(service_account_path):
+            # Try to find the file in the current directory
+            filename = os.path.basename(service_account_path)
+            local_path = os.path.join(os.getcwd(), filename)
+            if os.path.exists(local_path):
+                service_account_path = local_path
+                logger.info(f"Found service account file at: {service_account_path}")
+            else:
+                raise FileNotFoundError(f"Firebase service account file not found at: {service_account_path}")
+        
+        # Initialize Firebase
+        cred = credentials.Certificate(service_account_path)
+        firebase_admin.initialize_app(cred, {
+            'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET', '')
+        })
+        logger.info("Firebase Storage initialized successfully")
+
+except Exception as e:
+    logger.error(f"Failed to initialize Firebase Storage: {str(e)}")
+    raise
+
+# Initialize Firebase Storage and Firestore
 bucket = storage.bucket()
 db = firestore.client()
 
