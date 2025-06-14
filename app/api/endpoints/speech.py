@@ -84,27 +84,26 @@ async def text_to_speech(
                 detail=f"Failed to generate speech: {error_msg or 'Unknown error'}"
             )
         
-        # Read the audio file
-        with open(audio_path, 'rb') as audio_file:
-            audio_data = audio_file.read()
-        
-        # Clean up the temporary file
         try:
-            os.remove(audio_path)
-        except Exception as e:
-            logger.warning(f"Could not remove temporary audio file: {e}")
-        
-        # Return the audio file directly
-        return Response(
-            content=audio_data,
-            media_type="audio/wav",
-            headers={
-                "Content-Disposition": "inline; filename=speech.wav",
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
+            # Return the audio file using FileResponse
+            return FileResponse(
+                path=audio_path,
+                media_type="audio/wav",
+                filename="speech.wav",
+                headers={
+                    "Content-Disposition": "inline; filename=speech.wav",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+        finally:
+            # Clean up the temporary file after sending the response
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except Exception as e:
+                logger.warning(f"Could not remove temporary audio file: {e}")
         
     except Exception as e:
         logger.error(f"Error in TTS endpoint: {str(e)}", exc_info=True)
