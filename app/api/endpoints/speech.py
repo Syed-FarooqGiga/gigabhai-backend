@@ -34,14 +34,17 @@ class TTSRequest(BaseModel):
 @router.options("/tts")
 async def tts_options():
     """Handle OPTIONS request for CORS preflight."""
-    response = Response(
+    response_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Max-Age": "600"
+    }
+    return Response(
         status_code=204,  # No Content
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS"
-        }
+        headers=response_headers
     )
-    return response
 
 @router.post("/tts")
 async def text_to_speech(
@@ -101,15 +104,30 @@ async def text_to_speech(
         language = request.language or "en"
         logger.info(f"Generating TTS for {len(request.text)} characters in {language}")
         
-        audio_path = tts_service.generate_tts(request.text, language=language)
+        # Call the async method and await the result
+        audio_path, error = await tts_service.text_to_speech(request.text, language=language)
         
-        if not audio_path or not os.path.exists(audio_path):
-            error_msg = f"Failed to generate speech. Audio path: {audio_path}"
+        if error or not audio_path:
+            error_msg = f"Failed to generate speech: {error}"
             logger.error(error_msg)
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "Failed to generate speech"},
+                content={"error": error_msg},
                 headers={
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true"
+                }
+            )
+            
+        if not os.path.exists(audio_path):
+            error_msg = f"Generated audio file not found at: {audio_path}"
+            logger.error(error_msg)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Generated audio file not found"},
+                headers={
+                    "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Credentials": "true"
                 }
@@ -119,31 +137,50 @@ async def text_to_speech(
         with open(audio_path, 'rb') as f:
             audio_data = f.read()
         
-        # Create response with CORS headers
+        # Common response headers
         response_headers = {
             "Content-Type": "audio/wav",
-            "Vary": "Origin"
-        }
-        headers = {
             "Content-Disposition": "inline; filename=speech.wav",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            **response_headers
+            "Expires": "0",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin"
         }
         
         return Response(
             content=audio_data,
             media_type="audio/wav",
-            headers=headers,
+            headers=response_headers,
             status_code=200
         )
         
     except Exception as e:
-        logger.error(f"Error in text_to_speech: {str(e)}", exc_info=True)
+        error_msg = f"Error in text_to_speech: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        
+        # Add more context to the error response
+        error_detail = {
+            "error": "Failed to generate speech",
+            "message": str(e),
+            "type": type(e).__name__
+        }
+        
+        # Add more details for specific error types
+        if "No such file or directory" in str(e):
+            error_detail["details"] = "Output directory not found or not writable"
+        elif "Invalid language" in str(e):
+            error_detail["details"] = "Unsupported language code"
+            
         return JSONResponse(
-            status_code=500,
-            content={"error": str(e)},
-            headers={"Content-Type": "application/json"}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_detail,
+            headers={
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true"
+            }
         )
         
     finally:
