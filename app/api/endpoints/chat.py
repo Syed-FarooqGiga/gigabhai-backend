@@ -2,9 +2,18 @@ import logging
 from fastapi import APIRouter, HTTPException, status, Depends, Header
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import uuid
+import os
+import json
+from datetime import datetime
+from pathlib import Path
 from groq_handler import get_groq_response
+
+# Import personality system
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from personalities import get_personality_context, PERSONALITIES, PERSONALITY_PROMPTS
 
 # Configure logging
 logging.basicConfig(
@@ -13,7 +22,88 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Constants
+CHAT_HISTORY_DIR = Path("chat_history")
+MAX_HISTORY_LENGTH = 10  # Maximum number of messages to keep in memory
+
+# Ensure chat history directory exists
+os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
+
 router = APIRouter(tags=["chat"])
+
+def get_chat_history_file(conversation_id: str) -> Path:
+    """Get the path to the chat history file for a conversation."""
+    return CHAT_HISTORY_DIR / f"{conversation_id}.json"
+
+async def load_chat_history(conversation_id: str) -> List[Dict[str, Any]]:
+    """Load chat history for a conversation."""
+    history_file = get_chat_history_file(conversation_id)
+    if history_file.exists():
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Error loading chat history: {e}")
+            return []
+    return []
+
+async def save_chat_history(conversation_id: str, messages: List[Dict[str, Any]]) -> None:
+    """Save chat history for a conversation."""
+    if not messages:
+        return
+        
+    try:
+        history_file = get_chat_history_file(conversation_id)
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+    except IOError as e:
+        logger.error(f"Error saving chat history: {e}")
+
+def prepare_messages(
+    user_message: str,
+    personality_id: str,
+    chat_history: List[Dict[str, Any]] = None
+) -> Tuple[List[Dict[str, str]], str]:
+    """
+    Prepare messages for the LLM with personality context.
+    
+    Args:
+        user_message: The user's message
+        personality_id: ID of the personality to use
+        chat_history: Previous chat history (if any)
+        
+    Returns:
+        Tuple of (messages, conversation_id)
+    """
+    # Get personality context
+    personality = PERSONALITIES.get(personality_id, PERSONALITIES["swag_bhai"])
+    context = get_personality_context(personality_id)
+    
+    # Prepare system message with personality
+    system_message = {
+        "role": "system",
+        "content": context["system_prompt"]
+    }
+    
+    # Prepare messages list with system message first
+    messages = [system_message]
+    
+    # Add chat history if available
+    if chat_history:
+        # Ensure we don't exceed max history length
+        for msg in chat_history[-MAX_HISTORY_LENGTH:]:
+            messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+    
+    # Add current user message
+    messages.append({
+        "role": "user",
+        "content": user_message.strip()
+    })
+    
+    return messages
 
 class ChatMessage(BaseModel):
     role: str  # 'user' or 'assistant'
@@ -33,20 +123,10 @@ class ChatResponse(BaseModel):
     status: str = "success"
     error: Optional[str] = None
 
-# Personality system prompts
-PERSONALITY_PROMPTS = {
-    'swag_bhai': (
-        "You are Swag Bhai, a cool and friendly assistant who speaks in a hip, casual style with emojis. "
-        "You're helpful, witty, and always keep it real. Use modern slang and keep responses concise and engaging. "
-        "Use emojis to express emotions and keep the tone light and fun."
-    ),
-    'default': (
-        "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, "
-        "while being safe. Your answers should not include any harmful, unethical, racist, sexist, "
-        "toxic, dangerous, or illegal content. Please ensure that your responses are socially "
-        "unbiased and positive in nature."
-    )
-}
+# Personality validation
+def validate_personality(personality_id: str) -> bool:
+    """Check if a personality ID is valid."""
+    return personality_id in PERSONALITIES
 
 @router.options("")
 async def chat_options():
@@ -85,6 +165,8 @@ async def chat(
         "Vary": "Origin"
     }
     
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    
     try:
         # Verify authentication
         if not authorization or not authorization.startswith("Bearer "):
@@ -94,12 +176,12 @@ async def chat(
                 content={
                     "status": "error",
                     "message": "Authentication required",
-                    "conversation_id": request.conversation_id or "",
+                    "conversation_id": conversation_id,
                     "error": "Invalid or missing authentication token"
                 },
                 headers=cors_headers
             )
-            
+        
         # Extract token
         token = authorization.replace("Bearer ", "")
         
@@ -112,28 +194,36 @@ async def chat(
                 content={
                     "status": "error",
                     "message": error_msg,
-                    "conversation_id": request.conversation_id or "",
+                    "conversation_id": conversation_id,
                     "error": "Empty message"
                 },
                 headers=cors_headers
             )
         
-        # Get the system prompt based on personality
-        personality = request.personality.lower()
-        system_prompt = PERSONALITY_PROMPTS.get(personality, PERSONALITY_PROMPTS['default'])
+        # Validate personality
+        if not validate_personality(request.personality):
+            error_msg = f"Invalid personality: {request.personality}"
+            logger.warning(error_msg)
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "error",
+                    "message": error_msg,
+                    "conversation_id": conversation_id,
+                    "error": "Invalid personality"
+                },
+                headers=cors_headers
+            )
         
-        # Prepare messages for the API
-        messages = [{"role": "system", "content": system_prompt}]
+        # Load chat history if available
+        chat_history = await load_chat_history(conversation_id)
         
-        # Add chat history if available
-        if request.chat_history:
-            messages.extend(request.chat_history)
-        
-        # Add the current user message
-        messages.append({"role": "user", "content": request.message.strip()})
-        
-        # Generate conversation ID if new conversation
-        conversation_id = request.conversation_id or str(uuid.uuid4())
+        # Prepare messages with personality and history
+        messages = prepare_messages(
+            user_message=request.message,
+            personality_id=request.personality,
+            chat_history=chat_history
+        )
         
         # Log the request
         logger.info(f"Processing chat request for conversation: {conversation_id}")
@@ -147,10 +237,19 @@ async def chat(
             response_text = response_text.strip()
             if response_text.startswith('"') and response_text.endswith('"'):
                 response_text = response_text[1:-1]
-                
+            
             logger.info(f"Successfully generated response for conversation: {conversation_id}")
             
-            # Create response with CORS headers
+            # Update chat history
+            chat_history.extend([
+                {"role": "user", "content": request.message.strip()},
+                {"role": "assistant", "content": response_text}
+            ])
+            
+            # Save updated history (async)
+            await save_chat_history(conversation_id, chat_history)
+            
+            # Create response
             response = ChatResponse(
                 message=response_text,
                 conversation_id=conversation_id,
@@ -201,7 +300,8 @@ async def chat(
             content={
                 "status": "error",
                 "message": "An unexpected error occurred",
-                "conversation_id": request.conversation_id if hasattr(request, 'conversation_id') else "",
-                "error": "Internal server error"
-            }
+                "conversation_id": conversation_id,
+                "error": str(e)
+            },
+            headers=cors_headers
         )
