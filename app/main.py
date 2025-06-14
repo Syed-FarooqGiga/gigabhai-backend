@@ -1,71 +1,47 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.endpoints import chat, speech, gigs, auth
 import logging
-from dotenv import load_dotenv
 import os
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Create FastAPI app
-app = FastAPI(
-    title="GigaBhai API",
-    description="API for GigaBhai - Your AI Assistant",
-    version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
-)
+# Logging config
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Allow localhost origins explicitly for dev
-dev_origins = [
-    "http://localhost:3000",
-    "http://localhost:8081"
+# Allowed frontend origins
+origins = [
+    "https://www.gigabhai.com",  # Your production frontend
+    "http://localhost:3000",     # For local dev testing
+    "http://127.0.0.1:3000"
 ]
 
-# Add CORS middleware (allows all *.gigabhai.com subdomains and localhost for dev)
+# Initialize FastAPI app
+app = FastAPI()
+
+# Enable CORS for allowed domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https:\/\/(.*\.)?gigabhai\.com",
-    allow_origins=dev_origins,
+    allow_origins=origins,            # Only allow your frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=600,
 )
 
-# Import and include routers
-from app.api.endpoints import speech as speech_endpoints
-from app.api.endpoints import chat as chat_endpoints
+# Routes
+@app.get("/")
+def root():
+    return {"message": "Welcome to GigaBhai API"}
 
-# Include routers
-app.include_router(
-    speech_endpoints.router,
-    prefix="/api/speech",
-    tags=["speech"]
-)
-
-app.include_router(
-    chat_endpoints.router,
-    prefix="/api/chat",
-    tags=["chat"]
-)
-
-# Health check endpoint
 @app.get("/health")
-async def health_check():
+def health():
     return {"status": "ok"}
 
-# Root endpoint
-@app.get("/")
-async def root():
-    return {
-        "message": "Welcome to GigaBhai API",
-        "docs": "/api/docs",
-        "redoc": "/api/redoc"
-    }
+# Include routers
+app.include_router(chat.router, prefix="/api", tags=["Chat"])
+app.include_router(speech.router, prefix="/api", tags=["Speech"])
+app.include_router(gigs.router, prefix="/api", tags=["Gigs"])
+app.include_router(auth.router, prefix="/api", tags=["Auth"])
