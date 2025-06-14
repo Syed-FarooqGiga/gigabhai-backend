@@ -35,7 +35,7 @@ class TTSRequest(BaseModel):
 async def text_to_speech(
     request: TTSRequest,
     response: Response
-) -> Response:
+):
     """
     Convert text to speech in the specified language.
     
@@ -46,71 +46,67 @@ async def text_to_speech(
     Returns:
         Audio file response with proper headers
     """
-    text = request.text
-    language = request.language
-    
-    if not text or not text.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No text provided for TTS conversion"
-        )
-    
-    # Limit text length to prevent abuse
-    if len(text) > 500:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Text too long. Maximum 500 characters allowed."
-        )
-    
-    # Check if TTS service is available
-    if tts_service is None:
-        logger.error("TTS service is not available")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Text-to-speech service is currently unavailable"
-        )
-    
+    audio_path = None
     try:
+        if not tts_service:
+            logger.error("TTS service not initialized")
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"error": "TTS service is not available"}
+            
+        # Validate input
+        if not request.text or len(request.text.strip()) == 0:
+            logger.warning("Empty text received in TTS request")
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"error": "Text cannot be empty"}
+            
+        if len(request.text) > 500:
+            logger.warning(f"Text too long: {len(request.text)} characters")
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"error": "Text is too long. Maximum 500 characters allowed."}
+            
         # Generate speech
-        logger.info(f"Generating speech for text (language: {language}, length: {len(text)})")
+        language = request.language or "en"
+        logger.info(f"Generating TTS for {len(request.text)} characters in {language}")
         
-        # Use the TTS service to generate the audio file
-        audio_path, error_msg = await tts_service.text_to_speech(text, language)
+        audio_path = tts_service.generate_tts(request.text, language=language)
         
-        if error_msg or not audio_path or not os.path.exists(audio_path):
-            logger.error(f"Failed to generate TTS: {error_msg}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate speech: {error_msg or 'Unknown error'}"
-            )
+        if not audio_path or not os.path.exists(audio_path):
+            logger.error(f"Failed to generate speech. Audio path: {audio_path}")
+            response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return {"error": "Failed to generate speech"}
         
-        try:
-            # Return the audio file using FileResponse
-            return FileResponse(
-                path=audio_path,
-                media_type="audio/wav",
-                filename="speech.wav",
-                headers={
-                    "Content-Disposition": "inline; filename=speech.wav",
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0"
-                }
-            )
-        finally:
-            # Clean up the temporary file after sending the response
-            try:
-                if os.path.exists(audio_path):
-                    os.remove(audio_path)
-            except Exception as e:
-                logger.warning(f"Could not remove temporary audio file: {e}")
+        # Read the audio file
+        with open(audio_path, 'rb') as f:
+            audio_data = f.read()
+        
+        # Set response headers
+        headers = {
+            "Content-Type": "audio/wav",
+            "Content-Disposition": "inline; filename=speech.wav",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        
+        # Return the audio file
+        return Response(
+            content=audio_data,
+            media_type="audio/wav",
+            headers=headers
+        )
         
     except Exception as e:
         logger.error(f"Error in TTS endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while processing your request: {str(e)}"
-        )
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"error": f"Error generating speech: {str(e)}"}
+    finally:
+        # Clean up the temporary file if it exists
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.remove(audio_path)
+                logger.info(f"Cleaned up temporary audio file: {audio_path}")
+            except Exception as e:
+                logger.error(f"Error cleaning up audio file {audio_path}: {str(e)}")
 
 @router.post("/stt", response_model=Dict[str, Any])
 async def speech_to_text(
