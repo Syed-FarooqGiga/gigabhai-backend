@@ -62,54 +62,13 @@ def is_origin_allowed(origin: str) -> bool:
 # Add CORS middleware with production settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
     allow_origin_regex=r'https?://(?:localhost:\d+|127\.0\.0\.1:\d+|(?:[\w-]+\.)*gigabhai\.com)',
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # 10 minutes
 )
-
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next) -> Response:
-    """Middleware to add CORS headers to all responses."""
-    # Handle preflight requests
-    if request.method == "OPTIONS":
-        response = Response(
-            status_code=status.HTTP_204_NO_CONTENT,
-            headers={
-                "Access-Control-Allow-Origin": ", ".join(ALLOWED_ORIGINS),
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Max-Age": "600"
-            }
-        )
-        return response
-    
-    # Process the request
-    try:
-        response = await call_next(request)
-    except Exception as e:
-        logger.error(f"Error processing request: {str(e)}", exc_info=True)
-        response = JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"error": "Internal server error"},
-            headers={
-                "Access-Control-Allow-Origin": ", ".join(ALLOWED_ORIGINS),
-                "Access-Control-Allow-Credentials": "true"
-            }
-        )
-        return response
-    
-    # Add CORS headers to the response
-    origin = request.headers.get("origin")
-    if origin and is_origin_allowed(origin):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-    
-    return response
 
 # Import and include routers after app is created
 from app.api.endpoints import chat, speech
