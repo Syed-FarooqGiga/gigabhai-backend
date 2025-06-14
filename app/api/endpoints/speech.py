@@ -46,6 +46,16 @@ async def text_to_speech(
     Returns:
         Audio file response with proper headers
     """
+    # Set CORS headers for preflight
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    # Handle preflight request
+    if request.method == "OPTIONS":
+        return Response(status_code=200)
+    
     audio_path = None
     try:
         if not tts_service:
@@ -85,26 +95,32 @@ async def text_to_speech(
             "Content-Disposition": "inline; filename=speech.wav",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            "Access-Control-Allow-Origin": "*"
         }
         
         # Return the audio file
         return Response(
             content=audio_data,
             media_type="audio/wav",
-            headers=headers
+            headers=headers,
+            status_code=200
         )
         
     except Exception as e:
         logger.error(f"Error in TTS endpoint: {str(e)}", exc_info=True)
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return {"error": f"Error generating speech: {str(e)}"}
+        response.headers["Content-Type"] = "application/json"
+        return {"error": str(e)}
+        
     finally:
         # Clean up the temporary file if it exists
         if audio_path and os.path.exists(audio_path):
             try:
                 os.remove(audio_path)
                 logger.info(f"Cleaned up temporary audio file: {audio_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary audio file {audio_path}: {e}")
             except Exception as e:
                 logger.error(f"Error cleaning up audio file {audio_path}: {str(e)}")
 
