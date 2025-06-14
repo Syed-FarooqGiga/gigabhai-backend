@@ -32,15 +32,37 @@ origins = [
     "https://gigabhai.com",
     "https://api.gigabhai.com",
     "http://localhost:8081",  # For local development with Expo
-    "http://127.0.0.1:8081"   # Alternative localhost
+    "http://127.0.0.1:8081",  # Alternative localhost
+    "https://*.gigabhai.com"  # All subdomains of gigabhai.com
 ]
 
-# Add CORS middleware with more permissive settings for development
+def is_allowed_origin(origin: str) -> bool:
+    """Check if the origin is allowed."""
+    if not origin:
+        return False
+    
+    # Check exact matches
+    if origin in origins:
+        return True
+    
+    # Check for subdomains
+    if any(origin.startswith(f"http://{domain}") or 
+           origin.startswith(f"https://{domain}")
+           for domain in ["localhost", "127.0.0.1"]):
+        return True
+    
+    # Check for gigabhai.com and its subdomains
+    if ".gigabhai.com" in origin:
+        return True
+    
+    return False
+
+# Add CORS middleware with production settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origin_regex=r'https?://(?:localhost:\d+|127\.0\.0\.1:\d+|(?:[\w-]+\.)*gigabhai\.com)',
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # 10 minutes
@@ -53,9 +75,7 @@ async def add_cors_headers(request: Request, call_next):
     if request.method == "OPTIONS":
         response = Response()
         origin = request.headers.get('origin')
-        # More permissive check for development
-        if (origin in origins or 
-            any(domain in origin for domain in ['localhost', '127.0.0.1', 'gigabhai.com'])):
+        if is_allowed_origin(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
@@ -68,10 +88,12 @@ async def add_cors_headers(request: Request, call_next):
     
     # Add CORS headers to the response
     origin = request.headers.get('origin')
-    if origin and (origin in origins or any(domain in origin for domain in ['localhost', '127.0.0.1', 'gigabhai.com'])):
+    if is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "*"
+    
+    return response
 
 # Import and include routers after app is created
 from app.api.endpoints import chat, speech
