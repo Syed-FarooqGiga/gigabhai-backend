@@ -40,48 +40,13 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",  # Allow localhost with any port
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "*",  # Allow all headers
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-        "X-Requested-With"
-    ],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],
     max_age=600,  # 10 minutes
 )
-
-# Add middleware to handle CORS preflight requests
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    # Handle preflight requests
-    if request.method == "OPTIONS":
-        response = Response(
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": ", ".join(origins) if len(origins) > 1 else origins[0],
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Max-Age": "600"  # 10 minutes
-            }
-        )
-        return response
-    
-    # For regular requests
-    response = await call_next(request)
-    
-    # Add CORS headers to all responses
-    origin = request.headers.get("origin")
-    if origin in origins:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Expose-Headers"] = "*"
-    
-    return response
 
 # Import and include routers after app is created
 from app.api.endpoints import chat, speech
