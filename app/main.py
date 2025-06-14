@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from dotenv import load_dotenv
@@ -21,47 +21,23 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# Configure CORS
-origins = [
-    "https://www.gigabhai.com",
+# Allow localhost origins explicitly for dev
+dev_origins = [
     "http://localhost:3000",
-    "https://gigabhai.com",
-    "https://api.gigabhai.com",
-    "http://localhost:8081"  # For local development
+    "http://localhost:8081"
 ]
 
-# Add CORS middleware
+# Add CORS middleware (allows all *.gigabhai.com subdomains and localhost for dev)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origin_regex=r"https:\/\/(.*\.)?gigabhai\.com",
+    allow_origins=dev_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
-    max_age=600,  # 10 minutes
+    max_age=600,
 )
-
-# Add CORS headers to all responses
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    if request.method == "OPTIONS":
-        response = Response()
-        origin = request.headers.get('origin')
-        if origin in origins or any(origin.endswith(domain) for domain in ['.gigabhai.com', 'localhost']):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "*"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Max-Age"] = "600"
-        return response
-    
-    response = await call_next(request)
-    origin = request.headers.get('origin')
-    if origin in origins or any(origin.endswith(domain) for domain in ['.gigabhai.com', 'localhost']):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Expose-Headers"] = "*"
-    return response
 
 # Import and include routers
 from app.api.endpoints import speech as speech_endpoints
@@ -90,6 +66,6 @@ async def health_check():
 async def root():
     return {
         "message": "Welcome to GigaBhai API",
-        "docs": "/docs",
-        "redoc": "/redoc"
+        "docs": "/api/docs",
+        "redoc": "/api/redoc"
     }
