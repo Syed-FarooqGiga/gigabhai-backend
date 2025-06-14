@@ -29,24 +29,49 @@ app = FastAPI(
 origins = [
     "https://www.gigabhai.com",
     "http://localhost:3000",
-    "http://localhost:8081",
     "https://gigabhai.com",
     "https://api.gigabhai.com",
-    "http://127.0.0.1:8081",
-    "http://localhost:19006"  # Expo web default
+    "http://localhost:8081",  # For local development with Expo
+    "http://127.0.0.1:8081"   # Alternative localhost
 ]
 
-# Add CORS middleware with explicit configuration
+# Add CORS middleware with more permissive settings for development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",  # Allow localhost with any port
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # 10 minutes
 )
+
+# Add CORS headers to all responses
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    # Handle preflight requests
+    if request.method == "OPTIONS":
+        response = Response()
+        origin = request.headers.get('origin')
+        # More permissive check for development
+        if (origin in origins or 
+            any(domain in origin for domain in ['localhost', '127.0.0.1', 'gigabhai.com'])):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Max-Age"] = "600"
+        return response
+    
+    # Process the request
+    response = await call_next(request)
+    
+    # Add CORS headers to the response
+    origin = request.headers.get('origin')
+    if origin and (origin in origins or any(domain in origin for domain in ['localhost', '127.0.0.1', 'gigabhai.com'])):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
 
 # Import and include routers after app is created
 from app.api.endpoints import chat, speech
