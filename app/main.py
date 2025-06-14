@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from dotenv import load_dotenv
@@ -16,6 +16,9 @@ app = FastAPI(
     title="GigaBhai API",
     description="API for GigaBhai - Your AI Assistant",
     version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json"
 )
 
 # Configure CORS
@@ -23,13 +26,14 @@ origins = [
     "https://www.gigabhai.com",
     "http://localhost:3000",
     "https://gigabhai.com",
-    "https://api.gigabhai.com"
+    "https://api.gigabhai.com",
+    "http://localhost:8081"  # For local development
 ]
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https?://(localhost:\d+|(www\.)?gigabhai\.com|api\.gigabhai\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,14 +43,24 @@ app.add_middleware(
 
 # Add CORS headers to all responses
 @app.middleware("http")
-async def add_cors_header(request: Request, call_next):
+async def add_cors_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = Response()
+        origin = request.headers.get('origin')
+        if origin in origins or any(origin.endswith(domain) for domain in ['.gigabhai.com', 'localhost']):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Max-Age"] = "600"
+        return response
+    
     response = await call_next(request)
     origin = request.headers.get('origin')
-    if origin in origins:
+    if origin in origins or any(origin.endswith(domain) for domain in ['.gigabhai.com', 'localhost']):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
     return response
 
 # Import and include routers
