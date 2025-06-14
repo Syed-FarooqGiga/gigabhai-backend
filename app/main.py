@@ -19,20 +19,35 @@ app = FastAPI(
 )
 
 # Configure CORS
+origins = [
+    "https://www.gigabhai.com",
+    "http://localhost:3000",
+    "https://gigabhai.com",
+    "https://api.gigabhai.com"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost:3000|www\.gigabhai\.com|gigabhai\.com|api\.gigabhai\.com|www\.gigabhai\.com:.*|localhost:.*)",
-    allow_origins=[
-        "https://www.gigabhai.com",
-        "http://localhost:3000",
-        "https://gigabhai.com"
-    ],
+    allow_origins=origins,
+    allow_origin_regex=r"https?://(localhost:\d+|(www\.)?gigabhai\.com|api\.gigabhai\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # 10 minutes
 )
+
+# Add CORS headers to all responses
+@app.middleware("http")
+async def add_cors_header(request: Request, call_next):
+    response = await call_next(request)
+    origin = request.headers.get('origin')
+    if origin in origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 # Import and include routers
 from app.api.endpoints import speech as speech_endpoints
