@@ -36,33 +36,13 @@ origins = [
     "https://*.gigabhai.com"  # All subdomains of gigabhai.com
 ]
 
-def is_allowed_origin(origin: str) -> bool:
-    """Check if the origin is allowed."""
-    if not origin:
-        return False
-    
-    # Check exact matches
-    if origin in origins:
-        return True
-    
-    # Check for subdomains
-    if any(origin.startswith(f"http://{domain}") or 
-           origin.startswith(f"https://{domain}")
-           for domain in ["localhost", "127.0.0.1"]):
-        return True
-    
-    # Check for gigabhai.com and its subdomains
-    if ".gigabhai.com" in origin:
-        return True
-    
-    return False
-
 # Add CORS middleware with production settings
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=origins,
     allow_origin_regex=r'https?://(?:localhost:\d+|127\.0\.0\.1:\d+|(?:[\w-]+\.)*gigabhai\.com)',
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # 10 minutes
